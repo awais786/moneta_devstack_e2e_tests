@@ -1,0 +1,27 @@
+{
+  "name": "foss-e2e",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "discover": "ts-node -r dotenv/config discover.ts",
+    "test": "dotenv -- playwright test",
+    "test:auth": "dotenv -- playwright test tests/auth/ --project=chromium",
+    "test:apps": "dotenv -- playwright test tests/apps/ --project=chromium",
+    "test:all-browsers": "dotenv -- playwright test tests/auth/",
+    "install:browsers": "playwright install chromium firefox webkit",
+    "report": "playwright show-report"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^25.6.0",
+    "dotenv": "^17.4.2",
+    "dotenv-cli": "^11.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  }
+}
