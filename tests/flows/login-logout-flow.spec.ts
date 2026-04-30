@@ -1,0 +1,138 @@
+import { test, expect, Browser, BrowserContext, Page } from "@playwright/test";
+import { cognitoLogin } from "../../auth-helpers";
+import { APPS, AUTH_COOKIE, IDP_HOSTS, IDP_REGEX, MAIN_URL, isAuthWall } from "../../constants";
+
+// oauth2-proxy exposes /oauth2/sign_out on every protected subdomain.
+// Hitting it with `rd=` redirects to the main portal after clearing the cookie.
+function signOutUrl(appUrl: string): string {
+  return `${appUrl}/oauth2/sign_out?rd=${encodeURIComponent(MAIN_URL + "/")}`;
+}
+
+async function freshLogin(browser: Browser): Promise<{ context: BrowserContext; page: Page }> {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await cognitoLogin(page);
+  return { context, page };
+}
+
+async function getSsoCookie(context: BrowserContext) {
+  const cookies = await context.cookies();
+  return cookies.find((c) => c.name === AUTH_COOKIE);
+}
+
+// ---------------------------------------------------------------------------
+// Full flow: login once → open all 4 apps → confirm SSO authed across each
+// ---------------------------------------------------------------------------
+
+test.describe.serial("E2E Flow — Login + Visit All Apps + Per-App Logout", () => {
+  test("login once, then all 4 apps load authenticated without re-auth", async ({ browser }) => {
+    const { context, page } = await freshLogin(browser);
+
+    try {
+      const cookie = await getSsoCookie(context);
+      expect(cookie, "SSO cookie must be set after login").toBeDefined();
+
+      for (const app of APPS) {
+        const res = await page.goto(app.url, { waitUntil: "networkidle", timeout: 30000 });
+        expect(res?.status(), `${app.name} HTTP status`).toBeLessThan(400);
+        expect(
+          isAuthWall(page.url()),
+          `${app.name} must NOT bounce to auth wall — got ${page.url()}`
+        ).toBe(false);
+        expect(
+          new URL(page.url()).hostname,
+          `${app.name} should stay on its own host`
+        ).toBe(new URL(app.url).hostname);
+      }
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('main portal "Log out of all apps" button kills SSO and every app falls back to the IDP', async ({ browser }) => {
+    const { context, page } = await freshLogin(browser);
+
+    try {
+      // Sanity: SSO cookie present before logout
+      const cookieBefore = await getSsoCookie(context);
+      expect(cookieBefore, "SSO cookie must exist pre-logout").toBeDefined();
+      expect(cookieBefore!.value).not.toBe("");
+
+      // Land on main portal and click the global Logout All control
+      await page.goto(MAIN_URL, { waitUntil: "networkidle", timeout: 30000 });
+
+      const LOGOUT_ALL_RE = /log\s*out\s*(of\s*)?all(\s*apps)?|sign\s*out\s*(of\s*)?all(\s*apps)?/i;
+      const logoutAll = page
+        .getByRole("button", { name: LOGOUT_ALL_RE })
+        .or(page.getByRole("link", { name: LOGOUT_ALL_RE }))
+        .first();
+
+      await expect(
+        logoutAll,
+        "main portal must expose a 'Logout All' control"
+      ).toBeVisible({ timeout: 10000 });
+
+      await logoutAll.click({ timeout: 10000 });
+      await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
+
+      // SSO cookie must be cleared
+      const cookieAfter = await getSsoCookie(context);
+      const cleared = !cookieAfter || cookieAfter.value === "";
+      expect(cleared, `Logout All must clear ${AUTH_COOKIE}`).toBe(true);
+
+      // Every app, when revisited unauthenticated, must bounce off-host to the IDP chain
+      // (oauth2-proxy → Cognito or mPass).
+      for (const app of APPS) {
+        await page.goto(app.url, { waitUntil: "domcontentloaded", timeout: 30000 });
+        await page.waitForURL(IDP_REGEX, { timeout: 20000 }).catch(() => {});
+
+        const landed = page.url();
+        expect(
+          isAuthWall(landed),
+          `${app.name} must hit auth wall (oauth2-proxy or IDP) after logout-all, landed on ${landed}`
+        ).toBe(true);
+        expect(
+          IDP_HOSTS.some((h) => landed.includes(h)),
+          `${app.name} should reach an IDP host (${IDP_HOSTS.join(" or ")}), landed on ${landed}`
+        ).toBe(true);
+      }
+    } finally {
+      await context.close();
+    }
+  });
+
+  // Each app's logout runs in its own fresh context (logout kills SSO globally).
+  for (const app of APPS) {
+    test(`logout from ${app.name} redirects to main portal`, async ({ browser }) => {
+      const { context, page } = await freshLogin(browser);
+
+      try {
+        // Confirm app is reachable while authenticated
+        await page.goto(app.url, { waitUntil: "networkidle", timeout: 30000 });
+        expect(
+          isAuthWall(page.url()),
+          `${app.name} must be authed before logout`
+        ).toBe(false);
+
+        // Trigger logout via oauth2-proxy sign_out, redirect to main portal
+        await page.goto(signOutUrl(app.url), { waitUntil: "networkidle", timeout: 30000 });
+
+        // After logout: lands on main portal (or its auth wall — main portal forces login)
+        const finalUrl = page.url();
+        const onMain = finalUrl.startsWith(MAIN_URL);
+        const onAuthWall = isAuthWall(finalUrl);
+        expect(
+          onMain || onAuthWall,
+          `${app.name} logout should land on main portal or auth wall, got ${finalUrl}`
+        ).toBe(true);
+
+        // SSO cookie must be cleared
+        const cookie = await getSsoCookie(context);
+        const cleared = !cookie || cookie.value === "";
+        expect(cleared, `${app.name} logout must clear ${AUTH_COOKIE}`).toBe(true);
+      } finally {
+        await context.close();
+      }
+    });
+  }
+});

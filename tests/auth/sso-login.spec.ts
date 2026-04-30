@@ -1,9 +1,7 @@
 import { test, expect } from "../../fixtures";
-import { Browser, BrowserContext, Page } from "@playwright/test";
+import { BrowserContext, Page } from "@playwright/test";
+import { MAIN_URL, COGNITO_DOMAIN, AUTH_COOKIE } from "../../constants";
 
-const BASE_URL = "https://foss.arbisoft.com";
-const COGNITO_DOMAIN = "amazoncognito.com";
-const AUTH_COOKIE = "_oauth2_proxy";
 const SESSION_LS_KEY = "foss_cognito_alive_ts";
 
 // ---------------------------------------------------------------------------
@@ -25,7 +23,7 @@ async function isOnCognito(page: Page): Promise<boolean> {
 
 test.describe("SSO Login Flow", () => {
   test("authenticated session lands on FOSS platform, not Cognito", async ({ page }) => {
-    await page.goto(BASE_URL);
+    await page.goto(MAIN_URL);
     await page.waitForLoadState("networkidle");
 
     expect(await isOnCognito(page)).toBe(false);
@@ -49,7 +47,7 @@ test.describe("SSO Login Flow", () => {
   });
 
   test("session localStorage key set after login", async ({ page }) => {
-    await page.goto(BASE_URL);
+    await page.goto(MAIN_URL);
     await page.waitForLoadState("networkidle");
 
     const val = await page.evaluate(
@@ -64,41 +62,6 @@ test.describe("SSO Login Flow", () => {
     expect(Date.now() - ts).toBeLessThan(24 * 60 * 60 * 1000);
   });
 
-  // test("unauthenticated request to protected URL redirects to Cognito", async ({
-  //   browser,
-  // }: {
-  //   browser: Browser;
-  // }) => {
-  //   // Fresh context — no storageState
-  //   const freshCtx = await browser.newContext();
-  //   const page = await freshCtx.newPage();
-
-  //   await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
-  //   expect(await isOnCognito(page)).toBe(true);
-  //   expect(page.url()).toContain("client_id=");
-
-  //   await freshCtx.close();
-  // });
-
-  // test("Cognito login URL carries correct client_id and redirect_uri", async ({
-  //   browser,
-  // }: {
-  //   browser: Browser;
-  // }) => {
-  //   const freshCtx = await browser.newContext();
-  //   const page = await freshCtx.newPage();
-
-  //   await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
-  //   await page.waitForURL(/amazoncognito\.com/, { timeout: 10000 });
-
-  //   const url = new URL(page.url());
-  //   expect(url.searchParams.get("redirect_uri")).toContain("foss-auth.arbisoft.com");
-  //   expect(url.searchParams.get("response_type")).toBe("code");
-  //   expect(url.searchParams.get("scope")).toContain("openid");
-  //   expect(url.searchParams.get("code_challenge_method")).toBe("S256"); // PKCE
-
-  //   await freshCtx.close();
-  // });
 });
 
 // ---------------------------------------------------------------------------
@@ -110,7 +73,7 @@ test.describe("Session Persistence", () => {
     const cookieBefore = await getOauthCookie(context);
     expect(cookieBefore).toBeDefined();
 
-    await page.goto(BASE_URL);
+    await page.goto(MAIN_URL);
     await page.waitForLoadState("networkidle");
     await page.reload();
     await page.waitForLoadState("networkidle");
@@ -121,11 +84,11 @@ test.describe("Session Persistence", () => {
   });
 
   test("no re-authentication when revisiting base URL", async ({ page }) => {
-    await page.goto(BASE_URL);
+    await page.goto(MAIN_URL);
     await page.waitForLoadState("networkidle");
     const url1 = page.url();
 
-    await page.goto(BASE_URL);
+    await page.goto(MAIN_URL);
     await page.waitForLoadState("networkidle");
 
     expect(await isOnCognito(page)).toBe(false);

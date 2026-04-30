@@ -1,17 +1,6 @@
 import { test, expect, Browser, BrowserContext, Page } from "@playwright/test";
 import { cognitoLogin } from "../../auth-helpers";
-
-const COGNITO_DOMAIN = "amazoncognito.com";
-const AUTH_PROXY_DOMAIN = "foss-auth.arbisoft.com";
-const AUTH_COOKIE = "_oauth2_proxy";
-const MAIN_URL = "https://foss.arbisoft.com";
-
-const APPS = [
-  { name: "Outline",   url: "https://foss-docs.arbisoft.com" },
-  { name: "PM",        url: "https://foss-pm.arbisoft.com" },
-  { name: "Penpot",    url: "https://foss-design.arbisoft.com" },
-  { name: "SurfSense", url: "https://foss-research.arbisoft.com" },
-];
+import { APPS, AUTH_COOKIE, MAIN_URL, isAuthWall } from "../../constants";
 
 // These tests manage their own auth contexts — sharing the worker session would
 // contaminate other tests when logout destroys the SSO cookie.
@@ -32,10 +21,6 @@ async function performLogout(page: Page): Promise<void> {
 
   await logoutLocator.click({ timeout: 10000 });
   await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
-}
-
-function isAuthWall(url: string): boolean {
-  return url.includes(COGNITO_DOMAIN) || url.includes(AUTH_PROXY_DOMAIN);
 }
 
 // ---------------------------------------------------------------------------

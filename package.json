@@ -6,9 +6,10 @@
   "scripts": {
     "discover": "ts-node -r dotenv/config discover.ts",
     "test": "dotenv -- playwright test",
-    "test:auth": "dotenv -- playwright test tests/auth/ --project=chromium",
-    "test:apps": "dotenv -- playwright test tests/apps/ --project=chromium",
-    "test:all-browsers": "dotenv -- playwright test tests/auth/",
+    "test:auth": "dotenv -- playwright test tests/auth/",
+    "test:apps": "dotenv -- playwright test tests/apps/",
+    "test:flows": "dotenv -- playwright test tests/flows/",
+    "test:all-browsers": "BROWSERS=all dotenv -- playwright test",
     "install:browsers": "playwright install chromium firefox webkit",
     "report": "playwright show-report"
   },

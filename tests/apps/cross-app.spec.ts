@@ -1,11 +1,5 @@
 import { test, expect } from "../../fixtures";
-
-const APPS = [
-  { name: "Outline",   url: "https://foss-docs.arbisoft.com" },
-  { name: "PM",        url: "https://foss-pm.arbisoft.com" },
-  { name: "Penpot",    url: "https://foss-design.arbisoft.com" },
-  { name: "SurfSense", url: "https://foss-research.arbisoft.com" },
-];
+import { APPS } from "../../constants";
 
 test.describe("Cross-App Consistency", () => {
   test("all apps return HTTP 2xx", async ({ page }) => {
