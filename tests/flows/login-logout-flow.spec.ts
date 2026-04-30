@@ -26,6 +26,7 @@ async function getSsoCookie(context: BrowserContext) {
 
 test.describe.serial("E2E Flow — Login + Visit All Apps + Per-App Logout", () => {
   test("login once, then all 4 apps load authenticated without re-auth", async ({ browser }) => {
+    test.setTimeout(180_000); // 4 apps × networkidle goto + login can exceed 30s default
     const { context, page } = await freshLogin(browser);
 
     try {

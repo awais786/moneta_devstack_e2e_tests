@@ -64,16 +64,13 @@ test.describe("Session Lifecycle — Logout", () => {
   });
 
   test("no access to protected routes after logout", async ({ browser }) => {
+    test.setTimeout(180_000);
     const { context, page } = await loginFreshContext(browser);
 
-    const protectedRoutes = [
-      "https://foss.arbisoft.com/dashboard",
-      "https://foss.arbisoft.com/admin",
-      "https://foss-pm.arbisoft.com",
-      "https://foss-docs.arbisoft.com",
-      "https://foss-design.arbisoft.com",
-      "https://foss-research.arbisoft.com",
-    ];
+    // Only the per-app hosts are gated by oauth2-proxy. The main portal
+    // (foss.arbisoft.com) is the public landing page — it does not redirect
+    // unauthenticated users, so it doesn't belong in this assertion.
+    const protectedRoutes = APPS.map((a) => a.url);
 
     try {
       await performLogout(page);

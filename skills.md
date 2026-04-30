@@ -64,6 +64,20 @@ the discovery set before the assertions in L3–L7 run.
 
 ---
 
+### Canvas-SPA exemption (Penpot)
+
+Apps that render their UI through canvas/SVG without `<a href>` (Penpot is the
+only one today) opt out of L2–L7 by passing `requireLinks: false` to
+`registerLinkCoverage`. L1 still runs. Downstream tests self-skip with a clear
+"no anchors found" reason in the report.
+
+### Tour overlay handling (SurfSense, etc.)
+
+Apps that ship a product tour cover the page with an invisible
+`aria-label="Close tour"` button that intercepts pointer events. The factory
+calls a best-effort `dismissTour()` before discovery and before each click, and
+all clicks use `force: true` to bypass any remaining overlay.
+
 ## §3 — Per-app branding (optional)
 
 When an app sets a recognizable `<title>`, assert it once in

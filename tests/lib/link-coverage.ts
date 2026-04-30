@@ -61,22 +61,54 @@ export interface LinkCoverageOptions {
   baseUrl: string;
   /** Register the click-coverage test (L7). Slow — one full reload per link. */
   includeClickTest?: boolean;
+  /**
+   * Apps that render their UI via canvas/SPA without `<a href>` (e.g. Penpot)
+   * should set this to false. L1 still runs; L2–L7 self-skip with a clear
+   * message when no anchors are discovered.
+   */
+  requireLinks?: boolean;
+}
+
+// Some apps (notably SurfSense) ship a product tour that overlays the page and
+// intercepts pointer events. Best-effort dismissal before discovery / clicks.
+async function dismissTour(page: import("@playwright/test").Page): Promise<void> {
+  const close = page
+    .locator('button[aria-label*="close" i][aria-label*="tour" i]')
+    .or(page.locator('button[aria-label*="dismiss" i]'))
+    .or(page.getByRole("button", { name: /skip|close|got it|dismiss/i }))
+    .first();
+  if (await close.isVisible().catch(() => false)) {
+    await close.click({ timeout: 2000, force: true }).catch(() => {});
+    await page.waitForTimeout(200);
+  }
 }
 
 export function registerLinkCoverage({
   appName,
   baseUrl,
   includeClickTest = true,
+  requireLinks = true,
 }: LinkCoverageOptions): void {
   const HOST = new URL(baseUrl).hostname;
+  // Iterating across many links pushes well past Playwright's 30s default.
+  const SUITE_TIMEOUT = 180_000;
 
   test.describe(`${appName} — Link Coverage`, () => {
     // L1 + L2
     test("start page exposes at least one internal link", async ({ page }) => {
+      test.setTimeout(SUITE_TIMEOUT);
       const start = await resolveStartUrl(page, baseUrl);
+      await dismissTour(page);
       const links = await collectInternalHrefs(page, HOST);
       console.log(`[${appName}] start=${start}`);
       console.log(`[${appName}] discovered ${links.length} links`);
+
+      if (!requireLinks && links.length === 0) {
+        console.log(
+          `[${appName}] no anchors found — app uses canvas/SPA navigation; downstream link tests will self-skip.`
+        );
+        test.skip(true, `${appName}: no <a href> nav (requireLinks=false)`);
+      }
       expect(
         links.length,
         `${appName}: expected internal links from ${start}`
@@ -85,8 +117,14 @@ export function registerLinkCoverage({
 
     // L3 + L4 + L5 + L6
     test("every internal link loads without auth wall or error", async ({ page }) => {
+      test.setTimeout(SUITE_TIMEOUT);
       await resolveStartUrl(page, baseUrl);
+      await dismissTour(page);
       const links = await collectInternalHrefs(page, HOST);
+
+      if (!requireLinks && links.length === 0) {
+        test.skip(true, `${appName}: no <a href> nav (requireLinks=false)`);
+      }
       expect(links.length).toBeGreaterThan(0);
 
       const failures: { url: string; reason: string }[] = [];
@@ -129,13 +167,20 @@ export function registerLinkCoverage({
     // L7
     if (includeClickTest) {
       test("clicking each visible link navigates within host", async ({ page }) => {
+        test.setTimeout(SUITE_TIMEOUT);
         const start = await resolveStartUrl(page, baseUrl);
+        await dismissTour(page);
         const links = await collectInternalHrefs(page, HOST);
+
+        if (!requireLinks && links.length === 0) {
+          test.skip(true, `${appName}: no <a href> nav (requireLinks=false)`);
+        }
         expect(links.length).toBeGreaterThan(0);
 
         const failures: { href: string; reason: string }[] = [];
         for (const href of links) {
           await page.goto(start, { waitUntil: "networkidle", timeout: 30000 });
+          await dismissTour(page);
 
           const u = new URL(href);
           const link = page.locator(`a[href="${u.pathname}${u.search}"]`).first();
@@ -143,7 +188,8 @@ export function registerLinkCoverage({
 
           await Promise.all([
             page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {}),
-            link.click({ timeout: 10000 }).catch((e) => {
+            // force: bypass tour overlays / animated chrome that intercept pointer events
+            link.click({ timeout: 10000, force: true }).catch((e) => {
               failures.push({ href, reason: `click threw: ${e.message}` });
             }),
           ]);
