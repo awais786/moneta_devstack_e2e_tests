@@ -75,12 +75,15 @@ the discovery set before the assertions in L3–L7 run.
 
 ---
 
-### Canvas-SPA exemption (Penpot)
+### Apps without `<a href>` nav (Penpot)
 
-Apps that render their UI through canvas/SVG without `<a href>` (Penpot is the
-only one today) opt out of L2–L7 by passing `requireLinks: false` to
-`registerLinkCoverage`. L1 still runs. Downstream tests self-skip with a clear
-"no anchors found" reason in the report.
+Apps whose UI uses click-handler-driven nav (listitem/button) instead of
+anchor tags can't be covered by the generic factory. Penpot is the only
+such app today — its spec hits well-known hash routes directly
+(`/#/dashboard/recent`, `/#/settings/profile`, etc.) and asserts the
+same invariants the factory would (host stays put, no auth wall, no 404
+title). The `requireLinks: false` factory flag is still available for
+future apps in the same shape.
 
 ### Tour overlay handling (SurfSense, etc.)
 

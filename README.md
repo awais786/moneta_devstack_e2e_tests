@@ -1,6 +1,6 @@
 # FOSS E2E — Playwright Test Suite
 
-End-to-end tests for the FOSS platform. **36 tests across 8 spec files**,
+End-to-end tests for the FOSS platform. **34 tests across 8 spec files**,
 covering: SSO chain, multi-app session sharing, cookie expiry bounds,
 session lifecycle (logout / invalidation / replay / deletion), per-app link
 coverage, the Plane god-mode admin escape hatch, and the full
@@ -105,7 +105,7 @@ tests/
 │   └── session-lifecycle.spec.ts     # logout, replay, cookie deletion
 ├── apps/
 │   ├── outline.spec.ts               # branding + link coverage
-│   ├── penpot.spec.ts                # branding + link coverage (canvas-SPA exempt)
+│   ├── penpot.spec.ts                # branding + hash-route nav coverage
 │   ├── pm.spec.ts                    # link coverage
 │   ├── pm-godmode.spec.ts            # admin escape-hatch invariants
 │   └── surfsense.spec.ts             # link coverage
