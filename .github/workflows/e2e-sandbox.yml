@@ -77,3 +77,48 @@ jobs:
           name: test-results-sandbox
           path: test-results/
           retention-days: 7
+
+      # Slack notification — fires only on the 12-hour scheduled runs (and
+      # any failure of any run). PR/push success runs stay quiet so the
+      # channel isn't spammed by every commit.
+      #
+      # Add a repo secret `SLACK_WEBHOOK_URL` (Slack → Apps → Incoming
+      # Webhooks → New webhook for the target channel). If unset, this
+      # step no-ops with a log message.
+      - name: Notify Slack
+        if: always() && (github.event_name == 'schedule' || failure())
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          STATUS: ${{ job.status }}
+          TRIGGER: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          SERVER: ${{ github.server_url }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL not set — skipping Slack notification."
+            exit 0
+          fi
+          case "$STATUS" in
+            success)   EMOJI=":white_check_mark:" ;;
+            failure)   EMOJI=":x:" ;;
+            cancelled) EMOJI=":warning:" ;;
+            *)         EMOJI=":grey_question:" ;;
+          esac
+          SHORT_SHA="${SHA:0:7}"
+          TEXT="$EMOJI E2E Sandbox — *$STATUS* (trigger: \`$TRIGGER\`)"
+          BODY="*Repo:* \`$REPO\`\n*Branch:* \`$REF\`\n*Commit:* <$SERVER/$REPO/commit/$SHA|\`$SHORT_SHA\`>\n*Run:* <$SERVER/$REPO/actions/runs/$RUN_ID|view logs + report>"
+          curl -sS -X POST -H "Content-Type: application/json" \
+            --data "$(jq -nc \
+              --arg text "$TEXT" \
+              --arg body "$BODY" \
+              '{
+                text: $text,
+                blocks: [
+                  { type: "section", text: { type: "mrkdwn", text: $text } },
+                  { type: "section", text: { type: "mrkdwn", text: $body } }
+                ]
+              }')" \
+            "$SLACK_WEBHOOK_URL"
