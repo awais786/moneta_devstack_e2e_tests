@@ -78,19 +78,13 @@ jobs:
           path: test-results/
           retention-days: 7
 
-      # Slack notification — fires only on the 12-hour scheduled runs (and
-      # any failure of any run). PR/push success runs stay quiet so the
-      # channel isn't spammed by every commit.
-      #
-      # Add a repo secret `SLACK_WEBHOOK_URL` (Slack → Apps → Incoming
-      # Webhooks → New webhook for the target channel). If unset, this
-      # step no-ops with a log message.
-      - name: Notify Slack
-        if: always() && (github.event_name == 'schedule' || failure())
+      # Slack notification — failure-only, plain text. Lists each failed
+      # test by name. Add `SLACK_WEBHOOK_URL` as a repo secret to enable.
+      # No-ops with a log message if unset.
+      - name: Notify Slack on failure
+        if: failure()
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          STATUS: ${{ job.status }}
-          TRIGGER: ${{ github.event_name }}
           REPO: ${{ github.repository }}
           REF: ${{ github.ref_name }}
           SHA: ${{ github.sha }}
@@ -101,24 +95,31 @@ jobs:
             echo "SLACK_WEBHOOK_URL not set — skipping Slack notification."
             exit 0
           fi
-          case "$STATUS" in
-            success)   EMOJI=":white_check_mark:" ;;
-            failure)   EMOJI=":x:" ;;
-            cancelled) EMOJI=":warning:" ;;
-            *)         EMOJI=":grey_question:" ;;
-          esac
+
+          # Extract failed test names from the JSON reporter output.
+          # Walks the nested suites tree, picks specs whose `ok` is false.
+          if [ -f test-results/report.json ]; then
+            FAILED=$(jq -r '
+              [.. | objects | select(.specs?) | .specs[] | select(.ok == false) | "\(.file): \(.title)"]
+              | .[]' test-results/report.json 2>/dev/null || true)
+          else
+            FAILED=""
+          fi
+
+          if [ -z "$FAILED" ]; then
+            FAILED="(could not parse failed tests; check the run for details)"
+          fi
+
+          COUNT=$(printf '%s\n' "$FAILED" | grep -c . || echo 0)
           SHORT_SHA="${SHA:0:7}"
-          TEXT="$EMOJI E2E Sandbox — *$STATUS* (trigger: \`$TRIGGER\`)"
-          BODY="*Repo:* \`$REPO\`\n*Branch:* \`$REF\`\n*Commit:* <$SERVER/$REPO/commit/$SHA|\`$SHORT_SHA\`>\n*Run:* <$SERVER/$REPO/actions/runs/$RUN_ID|view logs + report>"
+          RUN_URL="$SERVER/$REPO/actions/runs/$RUN_ID"
+
+          MESSAGE="E2E Sandbox failed — $COUNT test(s)
+          Branch: $REF @ $SHORT_SHA
+          $RUN_URL
+
+          $FAILED"
+
           curl -sS -X POST -H "Content-Type: application/json" \
-            --data "$(jq -nc \
-              --arg text "$TEXT" \
-              --arg body "$BODY" \
-              '{
-                text: $text,
-                blocks: [
-                  { type: "section", text: { type: "mrkdwn", text: $text } },
-                  { type: "section", text: { type: "mrkdwn", text: $body } }
-                ]
-              }')" \
+            --data "$(jq -nc --arg text "$MESSAGE" '{text: $text}')" \
             "$SLACK_WEBHOOK_URL"

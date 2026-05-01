@@ -167,7 +167,7 @@ artifact only on failure.
 | `SANDBOX_FOSS_PASS` | ✅ | SSO password |
 | `SANDBOX_PLANE_ADMIN_USER` | optional | enables god-mode admin tests |
 | `SANDBOX_PLANE_ADMIN_PASS` | optional | same |
-| `SLACK_WEBHOOK_URL` | optional | enables Slack notifications on scheduled (12h) runs and any failure |
+| `SLACK_WEBHOOK_URL` | optional | enables Slack failure notifications (with the list of failed tests) |
 
 **Variables tab** (optional):
 
@@ -211,9 +211,22 @@ artifact only on failure.
 
 ### Slack notifications
 
-The sandbox workflow posts a status block to Slack on **every 12-hour
-scheduled run** and on **any failure** (push/PR success runs stay
-quiet). To enable:
+The sandbox workflow posts a **failure-only** plain-text report to
+Slack — listing each failed test by file + title — when any run (12h
+cron, push, PR, manual) fails. Successful runs stay quiet.
+
+Sample message:
+
+```
+E2E Sandbox failed — 2 test(s)
+Branch: main @ a1b2c3d
+https://github.com/your-org/your-repo/actions/runs/123456789
+
+tests/auth/session-sharing.spec.ts: auth/session cookies on every app...
+tests/apps/outline.spec.ts: clicking each visible link navigates within host
+```
+
+To enable:
 
 1. Slack workspace → **Apps → Incoming Webhooks → New webhook** for the
    target channel; copy the URL.
