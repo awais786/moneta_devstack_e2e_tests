@@ -126,7 +126,7 @@ uploads the HTML report as an artifact every run.
 
 | Workflow | File | Triggers | Secrets prefix |
 |----------|------|----------|----------------|
-| `E2E — Sandbox`    | `.github/workflows/e2e-sandbox.yml` | push to `main`, PR, manual | `SANDBOX_*` |
+| `E2E — Sandbox`    | `.github/workflows/e2e-sandbox.yml` | every 12h (00:00 + 12:00 UTC), push to `main`, PR, manual | `SANDBOX_*` |
 | `E2E — Production` | `.github/workflows/e2e-prod.yml`    | manual only (gated on `production` Environment) | `PROD_*` |
 
 ### Sandbox setup (one-time)

@@ -1,10 +1,15 @@
 name: E2E — Sandbox (Chromium)
 
-# Runs against the sandbox deployment on every push to main, every PR, and
-# on manual dispatch. Uses the SANDBOX_* secret prefix so prod creds stay
-# isolated.
+# Runs against the sandbox deployment:
+#   - twice a day on a 12-hour schedule (00:00 and 12:00 UTC)
+#   - on every push to main and every PR (catch regressions before merge)
+#   - on manual dispatch
+# Uses the SANDBOX_* secret prefix so prod creds stay isolated.
 
 on:
+  schedule:
+    # Every 12 hours: 00:00 and 12:00 UTC daily.
+    - cron: "0 */12 * * *"
   push:
     branches: [main]
   pull_request:
