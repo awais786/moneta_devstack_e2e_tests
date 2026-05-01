@@ -41,7 +41,12 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 2 : 1,
-  reporter: [["html", { open: "never" }], ["list"]],
+  reporter: [
+    ["html", { open: "never" }],
+    ["list"],
+    // JSON reporter — lets CI extract a plain failure list for Slack.
+    ["json", { outputFile: "test-results/report.json" }],
+  ],
 
   use: {
     baseURL: BASE_URL,

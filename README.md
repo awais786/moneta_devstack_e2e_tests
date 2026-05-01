@@ -167,6 +167,7 @@ artifact only on failure.
 | `SANDBOX_FOSS_PASS` | ✅ | SSO password |
 | `SANDBOX_PLANE_ADMIN_USER` | optional | enables god-mode admin tests |
 | `SANDBOX_PLANE_ADMIN_PASS` | optional | same |
+| `SLACK_WEBHOOK_URL` | optional | enables Slack failure notifications (with the list of failed tests) |
 
 **Variables tab** (optional):
 
@@ -207,6 +208,33 @@ artifact only on failure.
   it.
 - Daily prod smoke: uncomment the `schedule:` block in
   `.github/workflows/e2e-prod.yml`.
+
+### Slack notifications
+
+The sandbox workflow posts a **failure-only** plain-text report to
+Slack — listing each failed test by file + title — when any run (12h
+cron, push, PR, manual) fails. Successful runs stay quiet.
+
+Sample message:
+
+```
+E2E Sandbox failed — 2 test(s)
+Branch: main @ a1b2c3d
+https://github.com/your-org/your-repo/actions/runs/123456789
+
+tests/auth/session-sharing.spec.ts: auth/session cookies on every app...
+tests/apps/outline.spec.ts: clicking each visible link navigates within host
+```
+
+To enable:
+
+1. Slack workspace → **Apps → Incoming Webhooks → New webhook** for the
+   target channel; copy the URL.
+2. Repo Settings → Secrets and variables → Actions → Secrets → add
+   `SLACK_WEBHOOK_URL` with the webhook URL.
+
+The notification step no-ops with a log message if the secret is unset,
+so existing setups don't break.
 
 ### Local CI mode
 
