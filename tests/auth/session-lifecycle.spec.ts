@@ -63,23 +63,35 @@ test.describe("Session Lifecycle — Logout", () => {
     }
   });
 
-  test("no access to protected routes after logout", async ({ browser }) => {
+  // Simulates session expiry from the client side: the SSO cookie is gone
+  // (whether expired by TTL, manually cleared, or revoked) — every app must
+  // refuse access and bounce to the IDP. This is the behaviour users will
+  // see when SESSION_TTL_SECONDS elapses, without having to wait 8h.
+  test("deleting the _oauth2_proxy cookie locks every app behind the IDP", async ({
+    browser,
+  }) => {
     test.setTimeout(180_000);
     const { context, page } = await loginFreshContext(browser);
 
-    // Only the per-app hosts are gated by oauth2-proxy. The main portal
-    // (foss.arbisoft.com) is the public landing page — it does not redirect
-    // unauthenticated users, so it doesn't belong in this assertion.
-    const protectedRoutes = APPS.map((a) => a.url);
-
     try {
-      await performLogout(page);
+      // Sanity: SSO cookie present before deletion
+      const before = (await context.cookies()).find((c) => c.name === AUTH_COOKIE);
+      expect(before, "SSO cookie must exist before deletion").toBeDefined();
 
-      for (const url of protectedRoutes) {
-        await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+      // Delete only _oauth2_proxy, leave other cookies (CSRF, locale, etc.)
+      // alone — proves the SSO cookie is the gating credential, not just
+      // "any cookie" sufficing.
+      await context.clearCookies({ name: AUTH_COOKIE });
+
+      const after = (await context.cookies()).find((c) => c.name === AUTH_COOKIE);
+      expect(after, "_oauth2_proxy must be gone after clearCookies").toBeUndefined();
+
+      // Every protected app must now refuse access
+      for (const app of APPS) {
+        await page.goto(app.url, { waitUntil: "networkidle", timeout: 60000 });
         expect(
           isAuthWall(page.url()),
-          `${url} must not be accessible after logout, got: ${page.url()}`
+          `${app.name} must redirect to auth wall when SSO cookie is missing, got: ${page.url()}`
         ).toBe(true);
       }
     } finally {

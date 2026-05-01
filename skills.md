@@ -15,17 +15,25 @@ the suites below. Don't duplicate these checks per app.
 
 | # | Rule | Source |
 |---|------|--------|
-| U1 | Authenticated visit returns HTTP `<400` | `tests/apps/cross-app.spec.ts` |
-| U2 | Page `<title>` is non-empty and contains no `error` / `404` | `tests/apps/cross-app.spec.ts` |
-| U3 | App stays on its own host (no off-host redirect) | `tests/apps/cross-app.spec.ts` |
-| U4 | No login form / "Sign in" button visible when authed | `tests/apps/cross-app.spec.ts` |
-| U5 | `_oauth2_proxy` cookie present, scoped to `.arbisoft.com` | `tests/auth/session-sharing.spec.ts` |
-| U6 | Round-trip across all 4 apps requires no re-auth | `tests/auth/session-sharing.spec.ts` |
-| U7 | `/oauth2/sign_out` on any app clears the SSO cookie | `tests/auth/session-lifecycle.spec.ts` |
-| U8 | After logout, no protected route is reachable | `tests/auth/session-lifecycle.spec.ts` |
-| U9 | Pre-logout cookie cannot be replayed in a new context | `tests/auth/session-lifecycle.spec.ts` |
-| U10 | Login → visit each app → per-app `/oauth2/sign_out` → land on portal/auth wall | `tests/flows/login-logout-flow.spec.ts` |
-| U11 | Main portal **"Log out of all apps"** → all 4 apps bounce to an IDP | `tests/flows/login-logout-flow.spec.ts` |
+| U1 | `_oauth2_proxy` cookie shared across all 4 FOSS subdomains | `tests/auth/session-sharing.spec.ts` |
+| U2 | `_oauth2_proxy` has valid future expiry within session bounds | `tests/auth/session-sharing.spec.ts` |
+| U3 | Every app's auth/session cookies have expiry within 30-day SSO TTL bound | `tests/auth/session-sharing.spec.ts` |
+| U4 | Round-trip across all 4 apps requires no re-auth | `tests/auth/session-sharing.spec.ts` |
+| U5 | Cookie has SameSite=Lax + Secure + HttpOnly, set after login | `tests/auth/sso-login.spec.ts` |
+| U6 | Session survives reload and revisit without re-auth | `tests/auth/sso-login.spec.ts` |
+| U7 | UI logout on portal clears SSO cookie | `tests/auth/session-lifecycle.spec.ts` |
+| U8 | UI logout invalidates session on every app | `tests/auth/session-lifecycle.spec.ts` |
+| U9 | Pre-logout cookie cannot be replayed in a fresh context | `tests/auth/session-lifecycle.spec.ts` |
+| U10 | Fresh login → all 4 apps load authed without re-auth | `tests/flows/login-logout-flow.spec.ts` |
+| U11 | `/oauth2/sign_out` endpoint clears cookie and redirects | `tests/flows/login-logout-flow.spec.ts` |
+| U12 | Main portal **"Log out of all apps"** → all 4 apps bounce to IDP | `tests/flows/login-logout-flow.spec.ts` |
+| U13 | Plane `/god-mode/` bypasses ForwardAuth (admin escape hatch) | `tests/apps/pm-godmode.spec.ts` |
+| U14 | Deleting `_oauth2_proxy` (cookie expiry stand-in) locks every app | `tests/auth/session-lifecycle.spec.ts` |
+
+App-level smoke (HTTP status, title, host stability, no login wall) is no
+longer a separate suite — it is fully implied by `Link Coverage › every
+internal link loads without auth wall or error`, which exercises the same
+checks on every discovered route including the start page.
 
 ---
 

@@ -102,38 +102,30 @@ test.describe.serial("E2E Flow — Login + Visit All Apps + Per-App Logout", () 
     }
   });
 
-  // Each app's logout runs in its own fresh context (logout kills SSO globally).
-  for (const app of APPS) {
-    test(`logout from ${app.name} redirects to main portal`, async ({ browser }) => {
-      const { context, page } = await freshLogin(browser);
+  // /oauth2/sign_out endpoint behaviour. Run on one canonical app — the
+  // endpoint is provided by oauth2-proxy and is identical on every subdomain,
+  // so iterating all 4 was duplicate coverage. The "Log out of all apps"
+  // button test above already verifies global propagation across all apps.
+  test("/oauth2/sign_out endpoint clears SSO cookie and redirects", async ({ browser }) => {
+    const app = APPS[0];
+    const { context, page } = await freshLogin(browser);
 
-      try {
-        // Confirm app is reachable while authenticated
-        await page.goto(app.url, { waitUntil: "networkidle", timeout: 30000 });
-        expect(
-          isAuthWall(page.url()),
-          `${app.name} must be authed before logout`
-        ).toBe(false);
+    try {
+      await page.goto(app.url, { waitUntil: "networkidle", timeout: 30000 });
+      expect(isAuthWall(page.url()), `${app.name} must be authed before logout`).toBe(false);
 
-        // Trigger logout via oauth2-proxy sign_out, redirect to main portal
-        await page.goto(signOutUrl(app.url), { waitUntil: "networkidle", timeout: 30000 });
+      await page.goto(signOutUrl(app.url), { waitUntil: "networkidle", timeout: 30000 });
 
-        // After logout: lands on main portal (or its auth wall — main portal forces login)
-        const finalUrl = page.url();
-        const onMain = finalUrl.startsWith(MAIN_URL);
-        const onAuthWall = isAuthWall(finalUrl);
-        expect(
-          onMain || onAuthWall,
-          `${app.name} logout should land on main portal or auth wall, got ${finalUrl}`
-        ).toBe(true);
+      const finalUrl = page.url();
+      expect(
+        finalUrl.startsWith(MAIN_URL) || isAuthWall(finalUrl),
+        `Sign-out should land on main portal or auth wall, got ${finalUrl}`
+      ).toBe(true);
 
-        // SSO cookie must be cleared
-        const cookie = await getSsoCookie(context);
-        const cleared = !cookie || cookie.value === "";
-        expect(cleared, `${app.name} logout must clear ${AUTH_COOKIE}`).toBe(true);
-      } finally {
-        await context.close();
-      }
-    });
-  }
+      const cookie = await getSsoCookie(context);
+      expect(!cookie || cookie.value === "", `${AUTH_COOKIE} must be cleared`).toBe(true);
+    } finally {
+      await context.close();
+    }
+  });
 });

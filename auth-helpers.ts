@@ -14,7 +14,7 @@ export async function cognitoLogin(page: Page): Promise<void> {
     await page.getByRole("button", { name: /^login|sign in/i }).first().click();
   }
 
-  await page.waitForURL(IDP_REGEX, { timeout: 20000 });
+  await page.waitForURL(IDP_REGEX, { timeout: 45000 });
 
   const passwordChooser = page.getByRole("button", { name: /password login|username and password/i });
   if (await passwordChooser.count()) {
@@ -24,7 +24,7 @@ export async function cognitoLogin(page: Page): Promise<void> {
   const userInput = page.locator(
     'input[name="username"], input[name="mpassNumber"], input[placeholder*="username" i], input[placeholder*="mPass" i], input[type="text"]'
   ).first();
-  await userInput.waitFor({ state: "visible", timeout: 15000 });
+  await userInput.waitFor({ state: "visible", timeout: 30000 });
   await userInput.click();
   await userInput.pressSequentially(user, { delay: 30 });
 

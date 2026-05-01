@@ -1,6 +1,12 @@
 import { test, expect } from "../../fixtures";
 import { BrowserContext, Page } from "@playwright/test";
-import { MAIN_URL, COGNITO_DOMAIN, AUTH_COOKIE } from "../../constants";
+import {
+  MAIN_URL,
+  COGNITO_DOMAIN,
+  AUTH_COOKIE,
+  COOKIE_DOMAIN,
+  COOKIE_DOMAIN_REGEX,
+} from "../../constants";
 
 const SESSION_LS_KEY = "foss_cognito_alive_ts";
 
@@ -9,7 +15,7 @@ const SESSION_LS_KEY = "foss_cognito_alive_ts";
 // ---------------------------------------------------------------------------
 
 async function getOauthCookie(context: BrowserContext) {
-  const cookies = await context.cookies("https://foss.arbisoft.com");
+  const cookies = await context.cookies(MAIN_URL);
   return cookies.find((c) => c.name === AUTH_COOKIE);
 }
 
@@ -27,13 +33,13 @@ test.describe("SSO Login Flow", () => {
     await page.waitForLoadState("networkidle");
 
     expect(await isOnCognito(page)).toBe(false);
-    expect(page.url()).toContain("arbisoft.com");
+    expect(page.url()).toContain(COOKIE_DOMAIN);
   });
 
-  test("_oauth2_proxy cookie present on .arbisoft.com after login", async ({ context }) => {
+  test(`_oauth2_proxy cookie present on .${COOKIE_DOMAIN} after login`, async ({ context }) => {
     const cookie = await getOauthCookie(context);
     expect(cookie).toBeDefined();
-    expect(cookie!.domain).toMatch(/\.arbisoft\.com/);
+    expect(cookie!.domain).toMatch(COOKIE_DOMAIN_REGEX);
     expect(cookie!.secure).toBe(true);
     expect(cookie!.httpOnly).toBe(true);
   });
@@ -69,29 +75,30 @@ test.describe("SSO Login Flow", () => {
 // ---------------------------------------------------------------------------
 
 test.describe("Session Persistence", () => {
-  test("cookie persists across multiple page navigations", async ({ page, context }) => {
+  test("session survives reload + revisit (cookie unchanged, no re-auth)", async ({
+    page,
+    context,
+  }) => {
     const cookieBefore = await getOauthCookie(context);
-    expect(cookieBefore).toBeDefined();
+    expect(cookieBefore, "SSO cookie must exist before navigation").toBeDefined();
 
     await page.goto(MAIN_URL);
     await page.waitForLoadState("networkidle");
+    const firstUrl = page.url();
+
     await page.reload();
     await page.waitForLoadState("networkidle");
 
+    await page.goto(MAIN_URL);
+    await page.waitForLoadState("networkidle");
+
+    // Cookie value unchanged — no silent re-auth handshake
     const cookieAfter = await getOauthCookie(context);
     expect(cookieAfter).toBeDefined();
     expect(cookieAfter!.value).toBe(cookieBefore!.value);
-  });
 
-  test("no re-authentication when revisiting base URL", async ({ page }) => {
-    await page.goto(MAIN_URL);
-    await page.waitForLoadState("networkidle");
-    const url1 = page.url();
-
-    await page.goto(MAIN_URL);
-    await page.waitForLoadState("networkidle");
-
+    // No bounce to Cognito, lands on the same URL
     expect(await isOnCognito(page)).toBe(false);
-    expect(page.url()).toBe(url1);
+    expect(page.url()).toBe(firstUrl);
   });
 });

@@ -183,8 +183,13 @@ export function registerLinkCoverage({
           await dismissTour(page);
 
           const u = new URL(href);
-          const link = page.locator(`a[href="${u.pathname}${u.search}"]`).first();
+          // Exclude target="_blank" — opens a new tab, doesn't navigate the
+          // current page, so URL assertions below would be a false negative.
+          const link = page
+            .locator(`a[href="${u.pathname}${u.search}"]:not([target="_blank"])`)
+            .first();
           if (!(await link.isVisible().catch(() => false))) continue;
+          await link.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
 
           await Promise.all([
             page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {}),
