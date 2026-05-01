@@ -11,6 +11,7 @@
     "test:flows": "dotenv -- playwright test tests/flows/",
     "test:all-browsers": "BROWSERS=all dotenv -- playwright test",
     "install:browsers": "playwright install chromium firefox webkit",
+    "install:browsers:ci": "playwright install chromium --with-deps",
     "report": "playwright show-report"
   },
   "keywords": [],

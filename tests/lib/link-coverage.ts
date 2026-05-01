@@ -47,8 +47,14 @@ export async function collectInternalHrefs(page: Page, host: string): Promise<st
     if (url.protocol !== "https:") continue;
     if (url.hostname !== host) continue;
     if (LOGOUT_PATH_RE.test(url.pathname)) continue;
+    // Skip pure-fragment links (in-page anchors like href="#"): no
+    // navigation, no reload — would just churn the page.
+    if (url.hash === "#" || raw === url.origin + url.pathname + url.search + "#") continue;
 
-    const key = url.origin + url.pathname + url.search;
+    // Hash matters: SPAs like Penpot route via #/path, so two hrefs that
+    // differ only in hash are different destinations. Include it in the
+    // dedupe key.
+    const key = url.origin + url.pathname + url.search + url.hash;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(key);
@@ -67,6 +73,13 @@ export interface LinkCoverageOptions {
    * message when no anchors are discovered.
    */
   requireLinks?: boolean;
+  /**
+   * Override the URL used for link discovery. Some apps (e.g. Penpot) land
+   * on a dashboard whose primary nav uses listitem/button click handlers
+   * rather than `<a href>`, but expose anchor-based nav on a deeper page
+   * (Penpot: `/#/settings/profile`). Defaults to `baseUrl`.
+   */
+  discoveryUrl?: string;
 }
 
 // Some apps (notably SurfSense) ship a product tour that overlays the page and
@@ -88,8 +101,10 @@ export function registerLinkCoverage({
   baseUrl,
   includeClickTest = true,
   requireLinks = true,
+  discoveryUrl,
 }: LinkCoverageOptions): void {
   const HOST = new URL(baseUrl).hostname;
+  const startUrl = discoveryUrl ?? baseUrl;
   // Iterating across many links pushes well past Playwright's 30s default.
   const SUITE_TIMEOUT = 180_000;
 
@@ -97,7 +112,7 @@ export function registerLinkCoverage({
     // L1 + L2
     test("start page exposes at least one internal link", async ({ page }) => {
       test.setTimeout(SUITE_TIMEOUT);
-      const start = await resolveStartUrl(page, baseUrl);
+      const start = await resolveStartUrl(page, startUrl);
       await dismissTour(page);
       const links = await collectInternalHrefs(page, HOST);
       console.log(`[${appName}] start=${start}`);
@@ -118,7 +133,7 @@ export function registerLinkCoverage({
     // L3 + L4 + L5 + L6
     test("every internal link loads without auth wall or error", async ({ page }) => {
       test.setTimeout(SUITE_TIMEOUT);
-      await resolveStartUrl(page, baseUrl);
+      await resolveStartUrl(page, startUrl);
       await dismissTour(page);
       const links = await collectInternalHrefs(page, HOST);
 
@@ -168,7 +183,7 @@ export function registerLinkCoverage({
     if (includeClickTest) {
       test("clicking each visible link navigates within host", async ({ page }) => {
         test.setTimeout(SUITE_TIMEOUT);
-        const start = await resolveStartUrl(page, baseUrl);
+        const start = await resolveStartUrl(page, startUrl);
         await dismissTour(page);
         const links = await collectInternalHrefs(page, HOST);
 
@@ -183,11 +198,21 @@ export function registerLinkCoverage({
           await dismissTour(page);
 
           const u = new URL(href);
+          // Match the href as written in the DOM. SPAs with hash routing
+          // (e.g. Penpot) write `href="#/dashboard/..."`; conventional apps
+          // write `href="/foo?bar"`. Try the most-specific form first, fall
+          // back to less-specific.
+          const candidates = [
+            `${u.pathname}${u.search}${u.hash}`,
+            u.hash || `${u.pathname}${u.search}`,
+            u.href,
+          ].filter((v, i, a) => v && a.indexOf(v) === i);
           // Exclude target="_blank" — opens a new tab, doesn't navigate the
           // current page, so URL assertions below would be a false negative.
-          const link = page
-            .locator(`a[href="${u.pathname}${u.search}"]:not([target="_blank"])`)
-            .first();
+          const selector = candidates
+            .map((v) => `a[href="${v.replace(/"/g, '\\"')}"]:not([target="_blank"])`)
+            .join(", ");
+          const link = page.locator(selector).first();
           if (!(await link.isVisible().catch(() => false))) continue;
           await link.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
 

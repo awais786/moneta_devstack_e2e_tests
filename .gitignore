@@ -23,7 +23,8 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Editor
+# Editor / agent caches
 .vscode/
 .idea/
+.claude/
 *.swp

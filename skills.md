@@ -29,6 +29,9 @@ the suites below. Don't duplicate these checks per app.
 | U12 | Main portal **"Log out of all apps"** → all 4 apps bounce to IDP | `tests/flows/login-logout-flow.spec.ts` |
 | U13 | Plane `/god-mode/` bypasses ForwardAuth (admin escape hatch) | `tests/apps/pm-godmode.spec.ts` |
 | U14 | Deleting `_oauth2_proxy` (cookie expiry stand-in) locks every app | `tests/auth/session-lifecycle.spec.ts` |
+| U15 | Plane `/auth/get-csrf-token` also bypasses ForwardAuth (god-mode prerequisite) | `tests/apps/pm-godmode.spec.ts` |
+| U16 | god-mode admin login does **not** issue the platform SSO cookie | `tests/apps/pm-godmode.spec.ts` |
+| U17 | god-mode rejects an incorrect password (form stays visible, no admin nav) | `tests/apps/pm-godmode.spec.ts` |
 
 App-level smoke (HTTP status, title, host stability, no login wall) is no
 longer a separate suite — it is fully implied by `Link Coverage › every

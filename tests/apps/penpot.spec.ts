@@ -11,8 +11,9 @@ test.describe("Penpot (Design) — App-Specific", () => {
   });
 });
 
-// Penpot is a canvas-driven SPA — internal navigation goes through buttons
-// and programmatic routing, not <a href>. L1 still applies; L2–L7 self-skip.
+// Penpot's UI (dashboard + settings) uses listitem/button click handlers,
+// not <a href> tags — anchor-based discovery doesn't apply. L1 still
+// enforces a sane start URL; L2–L7 self-skip.
 registerLinkCoverage({
   appName: "Penpot (Design)",
   baseUrl: BASE,
