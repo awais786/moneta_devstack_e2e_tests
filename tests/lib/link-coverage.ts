@@ -30,6 +30,28 @@ export async function resolveStartUrl(page: Page, baseUrl: string): Promise<stri
   return page.url();
 }
 
+/**
+ * Wait for the page to actually render anchor-based nav before discovery
+ * runs. SurfSense (Next.js + SSE/zero-cache) frequently has `networkidle`
+ * resolve while the page still shows a "Loading" status — hydration plants
+ * the dashboard anchors a few hundred ms later. On slower CI runners this
+ * race causes 0-link failures even though the page is healthy.
+ *
+ * `requireLinks=false` apps (Penpot canvas-SPA) skip the wait so the
+ * discovery runs immediately and self-skips downstream tests.
+ */
+export async function waitForAnchors(
+  page: Page,
+  opts: { requireLinks?: boolean; timeout?: number } = {}
+): Promise<void> {
+  if (opts.requireLinks === false) return;
+  await page
+    .locator("a[href]")
+    .first()
+    .waitFor({ state: "attached", timeout: opts.timeout ?? 30_000 })
+    .catch(() => {});
+}
+
 export async function collectInternalHrefs(page: Page, host: string): Promise<string[]> {
   const hrefs = await page.$$eval("a[href]", (anchors) =>
     anchors.map((a) => (a as HTMLAnchorElement).href).filter(Boolean)
@@ -116,6 +138,7 @@ export function registerLinkCoverage({
       test.setTimeout(SUITE_TIMEOUT);
       const start = await resolveStartUrl(page, startUrl);
       await dismissTour(page);
+      await waitForAnchors(page, { requireLinks });
       const links = await collectInternalHrefs(page, HOST);
       console.log(`[${appName}] start=${start}`);
       console.log(`[${appName}] discovered ${links.length} links`);
@@ -137,6 +160,7 @@ export function registerLinkCoverage({
       test.setTimeout(SUITE_TIMEOUT);
       await resolveStartUrl(page, startUrl);
       await dismissTour(page);
+      await waitForAnchors(page, { requireLinks });
       const links = await collectInternalHrefs(page, HOST);
 
       if (!requireLinks && links.length === 0) {
@@ -187,6 +211,7 @@ export function registerLinkCoverage({
         test.setTimeout(SUITE_TIMEOUT);
         const start = await resolveStartUrl(page, startUrl);
         await dismissTour(page);
+        await waitForAnchors(page, { requireLinks });
         const links = await collectInternalHrefs(page, HOST);
 
         if (!requireLinks && links.length === 0) {
@@ -198,6 +223,7 @@ export function registerLinkCoverage({
         for (const href of links) {
           await page.goto(start, { waitUntil: "networkidle", timeout: 30000 });
           await dismissTour(page);
+          await waitForAnchors(page, { requireLinks });
 
           const u = new URL(href);
           // Match the href as written in the DOM. SPAs with hash routing
