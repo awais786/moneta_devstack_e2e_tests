@@ -1,0 +1,93 @@
+name: E2E — Production (Chromium)
+
+# Runs against the production deployment. Manual-dispatch only by default —
+# uncomment the schedule block to add a daily smoke. Uses the PROD_* secret
+# prefix and is gated by the `production` GitHub Environment so an approver
+# must click before secrets are released.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Override PROD_FOSS_BASE_URL for this run (optional)"
+        required: false
+        default: ""
+  # Daily smoke at 06:00 UTC (uncomment to enable):
+  # schedule:
+  #   - cron: "0 6 * * *"
+
+concurrency:
+  group: e2e-prod
+  cancel-in-progress: false  # never cancel a prod run mid-flight
+
+jobs:
+  e2e:
+    name: chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Gate on the `production` Environment. Configure under
+    # Settings → Environments → New environment → "production".
+    # Add required reviewers + the PROD_* secrets there for manual approval
+    # before each run.
+    environment: production
+
+    env:
+      CI: "true"
+      FOSS_BASE_URL:    ${{ inputs.base_url || vars.PROD_FOSS_BASE_URL }}
+      FOSS_USER:        ${{ secrets.PROD_FOSS_USER }}
+      FOSS_PASS:        ${{ secrets.PROD_FOSS_PASS }}
+      PLANE_ADMIN_USER: ${{ secrets.PROD_PLANE_ADMIN_USER }}
+      PLANE_ADMIN_PASS: ${{ secrets.PROD_PLANE_ADMIN_PASS }}
+      # Prod IDP overrides — set repo variables / environment secrets only
+      # if production uses different IDP hostnames than sandbox defaults.
+      FOSS_MPASS_DOMAIN:   ${{ vars.PROD_FOSS_MPASS_DOMAIN }}
+      FOSS_COGNITO_DOMAIN: ${{ vars.PROD_FOSS_COGNITO_DOMAIN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright (chromium only)
+        run: npm run install:browsers:ci
+
+      - name: Sanity — required secrets + base URL present
+        run: |
+          if [ -z "$FOSS_USER" ] || [ -z "$FOSS_PASS" ]; then
+            echo "::error::PROD_FOSS_USER / PROD_FOSS_PASS not set." \
+                 "Add them as Environment secrets on the 'production' environment."
+            exit 1
+          fi
+          if [ -z "$FOSS_BASE_URL" ]; then
+            echo "::error::PROD_FOSS_BASE_URL not set." \
+                 "Add a repo variable PROD_FOSS_BASE_URL (e.g. https://foss.example.com)" \
+                 "or pass base_url to the workflow_dispatch input."
+            exit 1
+          fi
+
+      - name: Run Playwright tests (chromium)
+        run: npx playwright test --project=chromium
+
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-prod
+          path: playwright-report/
+          retention-days: 30
+
+      - name: Upload failure traces / videos
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-prod
+          path: test-results/
+          retention-days: 14

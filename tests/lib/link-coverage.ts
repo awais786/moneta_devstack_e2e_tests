@@ -47,13 +47,15 @@ export async function collectInternalHrefs(page: Page, host: string): Promise<st
     if (url.protocol !== "https:") continue;
     if (url.hostname !== host) continue;
     if (LOGOUT_PATH_RE.test(url.pathname)) continue;
-    // Skip pure-fragment links (in-page anchors like href="#"): no
-    // navigation, no reload — would just churn the page.
-    if (url.hash === "#" || raw === url.origin + url.pathname + url.search + "#") continue;
+    // Hash semantics:
+    //   "#"        → empty fragment (no destination)
+    //   "#skip-nav" / "#main" / "#top" → in-page accessibility / fragment
+    //                anchors. Hidden until focused; not real destinations.
+    //   "#/foo"    → SPA hash route (Penpot et al). Keep.
+    if (url.hash && !url.hash.startsWith("#/")) continue;
 
-    // Hash matters: SPAs like Penpot route via #/path, so two hrefs that
-    // differ only in hash are different destinations. Include it in the
-    // dedupe key.
+    // Hash matters for SPA routes — include in dedupe key so #/foo and
+    // #/bar are treated as distinct destinations.
     const key = url.origin + url.pathname + url.search + url.hash;
     if (seen.has(key)) continue;
     seen.add(key);
