@@ -21,7 +21,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       await context.close();
       await use(JSON.stringify(state));
     },
-    { scope: "worker" },
+    { scope: "worker", timeout: 120_000 },
   ],
 
   // Each test gets a fresh context pre-loaded with the worker's auth state

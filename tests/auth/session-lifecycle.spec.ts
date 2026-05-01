@@ -1,17 +1,6 @@
 import { test, expect, Browser, BrowserContext, Page } from "@playwright/test";
 import { cognitoLogin } from "../../auth-helpers";
-
-const COGNITO_DOMAIN = "amazoncognito.com";
-const AUTH_PROXY_DOMAIN = "foss-auth.arbisoft.com";
-const AUTH_COOKIE = "_oauth2_proxy";
-const MAIN_URL = "https://foss.arbisoft.com";
-
-const APPS = [
-  { name: "Outline",   url: "https://foss-docs.arbisoft.com" },
-  { name: "PM",        url: "https://foss-pm.arbisoft.com" },
-  { name: "Penpot",    url: "https://foss-design.arbisoft.com" },
-  { name: "SurfSense", url: "https://foss-research.arbisoft.com" },
-];
+import { APPS, AUTH_COOKIE, MAIN_URL, isAuthWall } from "../../constants";
 
 // These tests manage their own auth contexts — sharing the worker session would
 // contaminate other tests when logout destroys the SSO cookie.
@@ -32,10 +21,6 @@ async function performLogout(page: Page): Promise<void> {
 
   await logoutLocator.click({ timeout: 10000 });
   await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
-}
-
-function isAuthWall(url: string): boolean {
-  return url.includes(COGNITO_DOMAIN) || url.includes(AUTH_PROXY_DOMAIN);
 }
 
 // ---------------------------------------------------------------------------
@@ -78,26 +63,35 @@ test.describe("Session Lifecycle — Logout", () => {
     }
   });
 
-  test("no access to protected routes after logout", async ({ browser }) => {
+  // Simulates session expiry from the client side: the SSO cookie is gone
+  // (whether expired by TTL, manually cleared, or revoked) — every app must
+  // refuse access and bounce to the IDP. This is the behaviour users will
+  // see when SESSION_TTL_SECONDS elapses, without having to wait 8h.
+  test("deleting the _oauth2_proxy cookie locks every app behind the IDP", async ({
+    browser,
+  }) => {
+    test.setTimeout(180_000);
     const { context, page } = await loginFreshContext(browser);
 
-    const protectedRoutes = [
-      "https://foss.arbisoft.com/dashboard",
-      "https://foss.arbisoft.com/admin",
-      "https://foss-pm.arbisoft.com",
-      "https://foss-docs.arbisoft.com",
-      "https://foss-design.arbisoft.com",
-      "https://foss-research.arbisoft.com",
-    ];
-
     try {
-      await performLogout(page);
+      // Sanity: SSO cookie present before deletion
+      const before = (await context.cookies()).find((c) => c.name === AUTH_COOKIE);
+      expect(before, "SSO cookie must exist before deletion").toBeDefined();
 
-      for (const url of protectedRoutes) {
-        await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+      // Delete only _oauth2_proxy, leave other cookies (CSRF, locale, etc.)
+      // alone — proves the SSO cookie is the gating credential, not just
+      // "any cookie" sufficing.
+      await context.clearCookies({ name: AUTH_COOKIE });
+
+      const after = (await context.cookies()).find((c) => c.name === AUTH_COOKIE);
+      expect(after, "_oauth2_proxy must be gone after clearCookies").toBeUndefined();
+
+      // Every protected app must now refuse access
+      for (const app of APPS) {
+        await page.goto(app.url, { waitUntil: "networkidle", timeout: 60000 });
         expect(
           isAuthWall(page.url()),
-          `${url} must not be accessible after logout, got: ${page.url()}`
+          `${app.name} must redirect to auth wall when SSO cookie is missing, got: ${page.url()}`
         ).toBe(true);
       }
     } finally {

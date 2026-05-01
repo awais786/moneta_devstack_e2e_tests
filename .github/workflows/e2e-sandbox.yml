@@ -1,0 +1,79 @@
+name: E2E — Sandbox (Chromium)
+
+# Runs against the sandbox deployment:
+#   - twice a day on a 12-hour schedule (00:00 and 12:00 UTC)
+#   - on every push to main and every PR (catch regressions before merge)
+#   - on manual dispatch
+# Uses the SANDBOX_* secret prefix so prod creds stay isolated.
+
+on:
+  schedule:
+    # Every 12 hours: 00:00 and 12:00 UTC daily.
+    - cron: "0 */12 * * *"
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-sandbox-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      CI: "true"
+      # Sandbox base URL is the default — set the repo variable
+      # SANDBOX_FOSS_BASE_URL to override (e.g. for an ephemeral sandbox).
+      FOSS_BASE_URL:    ${{ vars.SANDBOX_FOSS_BASE_URL || 'https://foss.arbisoft.com' }}
+      FOSS_USER:        ${{ secrets.SANDBOX_FOSS_USER }}
+      FOSS_PASS:        ${{ secrets.SANDBOX_FOSS_PASS }}
+      PLANE_ADMIN_USER: ${{ secrets.SANDBOX_PLANE_ADMIN_USER }}
+      PLANE_ADMIN_PASS: ${{ secrets.SANDBOX_PLANE_ADMIN_PASS }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright (chromium only)
+        run: npm run install:browsers:ci
+
+      - name: Sanity — required secrets present
+        run: |
+          if [ -z "$FOSS_USER" ] || [ -z "$FOSS_PASS" ]; then
+            echo "::error::SANDBOX_FOSS_USER / SANDBOX_FOSS_PASS not set." \
+                 "Configure under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+      - name: Run Playwright tests (chromium)
+        run: npx playwright test --project=chromium
+
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-sandbox
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload failure traces / videos
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-sandbox
+          path: test-results/
+          retention-days: 7
