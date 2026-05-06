@@ -11,6 +11,7 @@
 //   Plane (PM)              = https://foss-pm.<domain>
 //   Penpot (Design)         = https://foss-design.<domain>
 //   SurfSense (Research)    = https://foss-research.<domain>
+//   Twenty (CRM)            = https://foss-twenty.<domain>
 //   Cookie domain           = <domain>
 //
 // Pointing the suite at a different deployment is a one-line .env change:
@@ -83,6 +84,7 @@ export const APP_URLS = {
   PM:        sub("foss-pm"),
   Penpot:    sub("foss-design"),
   SurfSense: sub("foss-research"),
+  Twenty:    sub("foss-twenty"),
 } as const;
 
 export type AppName = keyof typeof APP_URLS;
