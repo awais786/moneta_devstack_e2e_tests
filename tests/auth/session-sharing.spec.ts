@@ -92,8 +92,10 @@ test.describe("SSO Session Sharing", () => {
     const failures: string[] = [];
 
     for (const app of APPS) {
-      // 60s — SurfSense networkidle frequently exceeds the 30s default.
-      await page.goto(app.url, { waitUntil: "networkidle", timeout: 60000 });
+      // `load`, not `networkidle` — Twenty keeps a websocket open and never
+      // reaches networkidle; cookies are set on the redirect response which
+      // arrives well before `load` fires.
+      await page.goto(app.url, { waitUntil: "load", timeout: 60000 });
       const cookies = await context.cookies(app.url);
 
       for (const c of cookies) {
@@ -124,8 +126,8 @@ test.describe("SSO Session Sharing", () => {
   test("round-trip across all apps requires no re-authentication", async ({ page }) => {
     test.setTimeout(180_000);
     for (const app of APPS) {
-      // 60s — SurfSense networkidle frequently exceeds the 30s default.
-      await page.goto(app.url, { waitUntil: "networkidle", timeout: 60000 });
+      // `load`, not `networkidle` — Twenty's websocket prevents networkidle.
+      await page.goto(app.url, { waitUntil: "load", timeout: 60000 });
       const landed = page.url();
       console.log(`${app.name} → ${landed}`);
 
@@ -135,7 +137,7 @@ test.describe("SSO Session Sharing", () => {
     }
 
     // Round-trip back to first app — still authed
-    await page.goto(APPS[0].url, { waitUntil: "networkidle", timeout: 60000 });
+    await page.goto(APPS[0].url, { waitUntil: "load", timeout: 60000 });
     expect(new URL(page.url()).hostname).toBe(new URL(APPS[0].url).hostname);
   });
 });

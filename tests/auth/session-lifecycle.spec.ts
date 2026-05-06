@@ -52,7 +52,9 @@ test.describe("Session Lifecycle — Logout", () => {
       await performLogout(page);
 
       for (const app of APPS) {
-        await page.goto(app.url, { waitUntil: "networkidle", timeout: 30000 });
+        // `load` — Twenty's websocket prevents networkidle. Auth-wall
+        // redirect happens at the HTTP layer, well before `load` fires.
+        await page.goto(app.url, { waitUntil: "load", timeout: 30000 });
         expect(
           isAuthWall(page.url()),
           `${app.name} must redirect to auth wall after logout, got: ${page.url()}`
@@ -88,7 +90,8 @@ test.describe("Session Lifecycle — Logout", () => {
 
       // Every protected app must now refuse access
       for (const app of APPS) {
-        await page.goto(app.url, { waitUntil: "networkidle", timeout: 60000 });
+        // `load` — Twenty's websocket prevents networkidle.
+        await page.goto(app.url, { waitUntil: "load", timeout: 60000 });
         expect(
           isAuthWall(page.url()),
           `${app.name} must redirect to auth wall when SSO cookie is missing, got: ${page.url()}`
