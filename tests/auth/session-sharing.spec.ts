@@ -92,10 +92,11 @@ test.describe("SSO Session Sharing", () => {
     const failures: string[] = [];
 
     for (const app of APPS) {
-      // `load`, not `networkidle` — Twenty keeps a websocket open and never
-      // reaches networkidle; cookies are set on the redirect response which
-      // arrives well before `load` fires.
-      await page.goto(app.url, { waitUntil: "load", timeout: 60000 });
+      // `domcontentloaded` — Twenty keeps a websocket (no networkidle) AND
+      // does a client-side redirect after first paint (aborts `load`).
+      // DCL fires the moment HTML is parsed: cookies are already in the
+      // jar at that point, and we're past any post-DCL navigation.
+      await page.goto(app.url, { waitUntil: "domcontentloaded", timeout: 60000 });
       const cookies = await context.cookies(app.url);
 
       for (const c of cookies) {
@@ -126,8 +127,8 @@ test.describe("SSO Session Sharing", () => {
   test("round-trip across all apps requires no re-authentication", async ({ page }) => {
     test.setTimeout(180_000);
     for (const app of APPS) {
-      // `load`, not `networkidle` — Twenty's websocket prevents networkidle.
-      await page.goto(app.url, { waitUntil: "load", timeout: 60000 });
+      // `domcontentloaded` — see note in the cookie-expiry test above.
+      await page.goto(app.url, { waitUntil: "domcontentloaded", timeout: 60000 });
       const landed = page.url();
       console.log(`${app.name} → ${landed}`);
 
@@ -137,7 +138,7 @@ test.describe("SSO Session Sharing", () => {
     }
 
     // Round-trip back to first app — still authed
-    await page.goto(APPS[0].url, { waitUntil: "load", timeout: 60000 });
+    await page.goto(APPS[0].url, { waitUntil: "domcontentloaded", timeout: 60000 });
     expect(new URL(page.url()).hostname).toBe(new URL(APPS[0].url).hostname);
   });
 });

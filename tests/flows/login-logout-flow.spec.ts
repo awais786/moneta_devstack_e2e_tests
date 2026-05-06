@@ -34,8 +34,8 @@ test.describe.serial("E2E Flow — Login + Visit All Apps + Per-App Logout", () 
       expect(cookie, "SSO cookie must be set after login").toBeDefined();
 
       for (const app of APPS) {
-        // `load` — Twenty's websocket prevents networkidle.
-        const res = await page.goto(app.url, { waitUntil: "load", timeout: 30000 });
+        // `domcontentloaded` — Twenty's client-side redirect aborts `load`.
+        const res = await page.goto(app.url, { waitUntil: "domcontentloaded", timeout: 30000 });
         expect(res?.status(), `${app.name} HTTP status`).toBeLessThan(400);
         expect(
           isAuthWall(page.url()),

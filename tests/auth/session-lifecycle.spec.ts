@@ -76,8 +76,8 @@ test.describe("Session Lifecycle — Logout", () => {
 
       // Every protected app must now refuse access
       for (const app of APPS) {
-        // `load` — Twenty's websocket prevents networkidle.
-        await page.goto(app.url, { waitUntil: "load", timeout: 60000 });
+        // `domcontentloaded` — Twenty's client-side redirect aborts `load`.
+        await page.goto(app.url, { waitUntil: "domcontentloaded", timeout: 60000 });
         expect(
           isAuthWall(page.url()),
           `${app.name} must redirect to auth wall when SSO cookie is missing, got: ${page.url()}`
