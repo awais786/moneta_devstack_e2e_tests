@@ -6,13 +6,13 @@
 // using the FOSS naming convention:
 //
 //   FOSS_BASE_URL           = https://foss.<domain>
-//   ForwardAuth host        = foss-auth.<domain>
-//   Outline (Docs)          = https://foss-docs.<domain>
-//   Plane (PM)              = https://foss-pm.<domain>
-//   Penpot (Design)         = https://foss-design.<domain>
-//   SurfSense (Research)    = https://foss-research.<domain>
-//   Twenty (CRM)            = https://foss-twenty.<domain>
-//   Cookie domain           = <domain>
+//   ForwardAuth host        = auth.foss.<domain>
+//   Outline (Docs)          = https://docs.foss.<domain>
+//   Plane (PM)              = https://pm.foss.<domain>
+//   Penpot (Design)         = https://design.foss.<domain>
+//   SurfSense (Research)    = https://research.foss.<domain>
+//   Twenty (CRM)            = https://twenty.foss.<domain>
+//   Cookie domain           = foss.<domain>     (i.e. MAIN_URL hostname)
 //
 // Pointing the suite at a different deployment is a one-line .env change:
 //   FOSS_BASE_URL=https://foss.example.com
@@ -38,29 +38,21 @@ const csv = (key: string, fallback: string): string[] =>
 
 export const MAIN_URL = env("FOSS_BASE_URL", "https://foss.arbisoft.com");
 
-// Derive the platform domain by stripping the leading subdomain label:
-//   foss.arbisoft.com → arbisoft.com
-//   foss.example.com  → example.com
-const PLATFORM_DOMAIN = (() => {
-  const host = new URL(MAIN_URL).hostname;
-  const labels = host.split(".");
-  if (labels.length < 2) {
-    throw new Error(
-      `FOSS_BASE_URL hostname "${host}" must have at least two labels (e.g. foss.example.com)`
-    );
-  }
-  return labels.slice(1).join(".");
-})();
+// Platform domain == the MAIN_URL hostname itself. Per-app hosts are
+// nested as `<app>.foss.<domain>` (e.g. docs.foss.arbisoft.com), and the
+// SSO cookie is scoped to this domain so it's shared across every app
+// subdomain but does NOT leak to sibling subdomains of <domain>.
+const PLATFORM_DOMAIN = new URL(MAIN_URL).hostname;
 
 const SCHEME = new URL(MAIN_URL).protocol; // "https:" usually
 
 const sub = (prefix: string): string => `${SCHEME}//${prefix}.${PLATFORM_DOMAIN}`;
 
-export const AUTH_PROXY_DOMAIN = `foss-auth.${PLATFORM_DOMAIN}`;
+export const AUTH_PROXY_DOMAIN = `auth.${PLATFORM_DOMAIN}`;
 export const COOKIE_DOMAIN     = PLATFORM_DOMAIN;
 
 export const COOKIE_DOMAIN_REGEX = new RegExp(
-  `\\.${COOKIE_DOMAIN.replace(/\./g, "\\.")}$`
+  `\\.?${COOKIE_DOMAIN.replace(/\./g, "\\.")}$`
 );
 
 export const AUTH_COOKIE = env("FOSS_AUTH_COOKIE", "_oauth2_proxy");
@@ -80,11 +72,11 @@ export const IDP_HOSTS = csv(
 // ---------------------------------------------------------------------------
 
 export const APP_URLS = {
-  Outline:   sub("foss-docs"),
-  PM:        sub("foss-pm"),
-  Penpot:    sub("foss-design"),
-  SurfSense: sub("foss-research"),
-  Twenty:    sub("foss-twenty"),
+  Outline:   sub("docs"),
+  PM:        sub("pm"),
+  Penpot:    sub("design"),
+  SurfSense: sub("research"),
+  Twenty:    sub("twenty"),
 } as const;
 
 export type AppName = keyof typeof APP_URLS;

@@ -16,15 +16,17 @@ All hosts derive from `FOSS_BASE_URL` using the FOSS naming convention:
 
 | Component | Host pattern | Sandbox value |
 |-----------|-------------|---------------|
-| Main portal           | `foss.<domain>`          | `foss.arbisoft.com` |
-| Outline (Docs)        | `foss-docs.<domain>`     | `foss-docs.arbisoft.com` |
-| Plane (PM)            | `foss-pm.<domain>`       | `foss-pm.arbisoft.com` |
-| Penpot (Design)       | `foss-design.<domain>`   | `foss-design.arbisoft.com` |
-| SurfSense (Research)  | `foss-research.<domain>` | `foss-research.arbisoft.com` |
-| ForwardAuth proxy     | `foss-auth.<domain>`     | `foss-auth.arbisoft.com` |
+| Main portal           | `foss.<domain>`              | `foss.arbisoft.com` |
+| Outline (Docs)        | `docs.foss.<domain>`         | `docs.foss.arbisoft.com` |
+| Plane (PM)            | `pm.foss.<domain>`           | `pm.foss.arbisoft.com` |
+| Penpot (Design)       | `design.foss.<domain>`       | `design.foss.arbisoft.com` |
+| SurfSense (Research)  | `research.foss.<domain>`     | `research.foss.arbisoft.com` |
+| Twenty (CRM)          | `twenty.foss.<domain>`       | `twenty.foss.arbisoft.com` |
+| ForwardAuth proxy     | `auth.foss.<domain>`         | `auth.foss.arbisoft.com` |
 
-`<domain>` is whatever follows `foss.` in `FOSS_BASE_URL`. Cookie scope
-domain is `<domain>`.
+App hosts are nested under the main-portal hostname, and the SSO cookie
+scope is `foss.<domain>` (the MAIN_URL hostname). Pointing the suite at
+a different deployment is a one-line change to `FOSS_BASE_URL`.
 
 ## Quick start
 
