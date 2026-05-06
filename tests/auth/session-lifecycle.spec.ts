@@ -45,25 +45,11 @@ test.describe("Session Lifecycle — Logout", () => {
     }
   });
 
-  test("logout from one app invalidates session across all apps", async ({ browser }) => {
-    const { context, page } = await loginFreshContext(browser);
-
-    try {
-      await performLogout(page);
-
-      for (const app of APPS) {
-        // `load` — Twenty's websocket prevents networkidle. Auth-wall
-        // redirect happens at the HTTP layer, well before `load` fires.
-        await page.goto(app.url, { waitUntil: "load", timeout: 30000 });
-        expect(
-          isAuthWall(page.url()),
-          `${app.name} must redirect to auth wall after logout, got: ${page.url()}`
-        ).toBe(true);
-      }
-    } finally {
-      await context.close();
-    }
-  });
+  // NOTE: per-app logout buttons (Outline / Plane / Penpot / SurfSense /
+  // Twenty's "Sign out") only redirect the user back to the main dashboard —
+  // they do NOT clear the shared `_oauth2_proxy` SSO cookie. Cross-app
+  // invalidation happens only via the dashboard's "Log out of all apps"
+  // button (covered in flows/login-logout-flow.spec.ts).
 
   // Simulates session expiry from the client side: the SSO cookie is gone
   // (whether expired by TTL, manually cleared, or revoked) — every app must
