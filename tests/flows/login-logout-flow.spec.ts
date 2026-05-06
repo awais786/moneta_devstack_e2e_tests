@@ -25,8 +25,8 @@ async function getSsoCookie(context: BrowserContext) {
 // ---------------------------------------------------------------------------
 
 test.describe.serial("E2E Flow — Login + Visit All Apps + Per-App Logout", () => {
-  test("login once, then all 4 apps load authenticated without re-auth", async ({ browser }) => {
-    test.setTimeout(180_000); // 4 apps × networkidle goto + login can exceed 30s default
+  test("login once, then every app loads authenticated without re-auth", async ({ browser }) => {
+    test.setTimeout(180_000); // many apps × goto + login can exceed 30s default
     const { context, page } = await freshLogin(browser);
 
     try {
@@ -34,7 +34,8 @@ test.describe.serial("E2E Flow — Login + Visit All Apps + Per-App Logout", () 
       expect(cookie, "SSO cookie must be set after login").toBeDefined();
 
       for (const app of APPS) {
-        const res = await page.goto(app.url, { waitUntil: "networkidle", timeout: 30000 });
+        // `load` — Twenty's websocket prevents networkidle.
+        const res = await page.goto(app.url, { waitUntil: "load", timeout: 30000 });
         expect(res?.status(), `${app.name} HTTP status`).toBeLessThan(400);
         expect(
           isAuthWall(page.url()),
@@ -84,6 +85,8 @@ test.describe.serial("E2E Flow — Login + Visit All Apps + Per-App Logout", () 
       // Every app, when revisited unauthenticated, must bounce off-host to the IDP chain
       // (oauth2-proxy → Cognito or mPass).
       for (const app of APPS) {
+        // `domcontentloaded` is fine here — we only need the redirect chain
+        // to settle, no client-side rendering needs to be observed.
         await page.goto(app.url, { waitUntil: "domcontentloaded", timeout: 30000 });
         await page.waitForURL(IDP_REGEX, { timeout: 20000 }).catch(() => {});
 

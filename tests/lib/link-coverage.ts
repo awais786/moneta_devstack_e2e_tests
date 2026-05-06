@@ -13,9 +13,15 @@ const RESERVED_PATH_SEGMENTS = new Set([
 // L8 — paths matching this regex are dropped from the discovery set.
 const LOGOUT_PATH_RE = /\/(logout|sign_out|signout)/i;
 
-export async function resolveStartUrl(page: Page, baseUrl: string): Promise<string> {
+export type WaitStrategy = "load" | "domcontentloaded" | "networkidle" | "commit";
+
+export async function resolveStartUrl(
+  page: Page,
+  baseUrl: string,
+  waitUntil: WaitStrategy = "networkidle",
+): Promise<string> {
   const expectedHost = new URL(baseUrl).hostname;
-  await page.goto(baseUrl, { waitUntil: "networkidle", timeout: 30000 });
+  await page.goto(baseUrl, { waitUntil, timeout: 30000 });
 
   const u = new URL(page.url());
   if (u.hostname !== expectedHost) {
@@ -104,6 +110,13 @@ export interface LinkCoverageOptions {
    * (Penpot: `/#/settings/profile`). Defaults to `baseUrl`.
    */
   discoveryUrl?: string;
+  /**
+   * Page-load strategy. Apps that keep a persistent websocket / SSE / poll
+   * (Twenty's GraphQL subscriptions) never reach `networkidle`, so they
+   * must override this to `"load"`. Default `"networkidle"` matches
+   * existing apps.
+   */
+  waitUntil?: WaitStrategy;
 }
 
 // Some apps (notably SurfSense) ship a product tour that overlays the page and
@@ -126,6 +139,7 @@ export function registerLinkCoverage({
   includeClickTest = true,
   requireLinks = true,
   discoveryUrl,
+  waitUntil = "networkidle",
 }: LinkCoverageOptions): void {
   const HOST = new URL(baseUrl).hostname;
   const startUrl = discoveryUrl ?? baseUrl;
@@ -136,7 +150,7 @@ export function registerLinkCoverage({
     // L1 + L2
     test("start page exposes at least one internal link", async ({ page }) => {
       test.setTimeout(SUITE_TIMEOUT);
-      const start = await resolveStartUrl(page, startUrl);
+      const start = await resolveStartUrl(page, startUrl, waitUntil);
       await dismissTour(page);
       await waitForAnchors(page, { requireLinks });
       const links = await collectInternalHrefs(page, HOST);
@@ -158,7 +172,7 @@ export function registerLinkCoverage({
     // L3 + L4 + L5 + L6
     test("every internal link loads without auth wall or error", async ({ page }) => {
       test.setTimeout(SUITE_TIMEOUT);
-      await resolveStartUrl(page, startUrl);
+      await resolveStartUrl(page, startUrl, waitUntil);
       await dismissTour(page);
       await waitForAnchors(page, { requireLinks });
       const links = await collectInternalHrefs(page, HOST);
@@ -171,7 +185,7 @@ export function registerLinkCoverage({
       const failures: { url: string; reason: string }[] = [];
       for (const href of links) {
         const res = await page
-          .goto(href, { waitUntil: "networkidle", timeout: 30000 })
+          .goto(href, { waitUntil, timeout: 30000 })
           .catch((e) => {
             failures.push({ url: href, reason: `goto threw: ${e.message}` });
             return null;
@@ -209,7 +223,7 @@ export function registerLinkCoverage({
     if (includeClickTest) {
       test("clicking each visible link navigates within host", async ({ page }) => {
         test.setTimeout(SUITE_TIMEOUT);
-        const start = await resolveStartUrl(page, startUrl);
+        const start = await resolveStartUrl(page, startUrl, waitUntil);
         await dismissTour(page);
         await waitForAnchors(page, { requireLinks });
         const links = await collectInternalHrefs(page, HOST);
@@ -221,7 +235,7 @@ export function registerLinkCoverage({
 
         const failures: { href: string; reason: string }[] = [];
         for (const href of links) {
-          await page.goto(start, { waitUntil: "networkidle", timeout: 30000 });
+          await page.goto(start, { waitUntil, timeout: 30000 });
           await dismissTour(page);
           await waitForAnchors(page, { requireLinks });
 
@@ -245,7 +259,7 @@ export function registerLinkCoverage({
           await link.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
 
           await Promise.all([
-            page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {}),
+            page.waitForLoadState(waitUntil === "commit" ? "load" : waitUntil, { timeout: 30000 }).catch(() => {}),
             // force: bypass tour overlays / animated chrome that intercept pointer events
             link.click({ timeout: 10000, force: true }).catch((e) => {
               failures.push({ href, reason: `click threw: ${e.message}` });
