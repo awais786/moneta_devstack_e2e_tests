@@ -14,11 +14,12 @@ async function loginFreshContext(browser: Browser): Promise<{ context: BrowserCo
 async function performLogout(page: Page): Promise<void> {
   await page.goto(MAIN_URL, { waitUntil: "networkidle", timeout: 30000 });
 
-  // Click the logout button/link in the main portal UI
-  const logoutLocator = page.locator(
-    'a[href*="logout"], a[href*="sign_out"], button:has-text("Logout"), button:has-text("Log out"), button:has-text("Sign out"), a:has-text("Logout"), a:has-text("Log out"), a:has-text("Sign out")'
-  ).first();
+  const logoutLocator = page
+    .getByRole("button", { name: /log\s*out|sign\s*out/i })
+    .or(page.getByRole("link", { name: /log\s*out|sign\s*out/i }))
+    .first();
 
+  await expect(logoutLocator, "Expected a visible logout control on main portal").toBeVisible({ timeout: 10000 });
   await logoutLocator.click({ timeout: 10000 });
   await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
 }
@@ -115,12 +116,9 @@ test.describe("Session Lifecycle — Logout", () => {
       // NOTE: If foss-auth uses stateless JWT tokens in the cookie this test may fail —
       // that would be a finding worth reporting (logout doesn't truly invalidate JWTs).
       const redirectedToAuthWall = isAuthWall(page2.url());
-      console.log(page2.url());
       const loginVisible =
-        (await page2.locator('input[type="password"]').count()) > 0 ||
-        (await page2.locator('button:has-text("Sign in")').count()) > 0;
-      console.log(redirectedToAuthWall);
-      console.log(loginVisible);
+        (await page2.locator('input[type="password"]:visible').count()) > 0 ||
+        (await page2.getByRole("button", { name: /sign\s*in/i }).filter({ visible: true }).count()) > 0;
       expect(
         redirectedToAuthWall || loginVisible,
         `Replayed pre-logout cookie must not grant access. Landed on: ${page2.url()}`

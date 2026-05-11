@@ -39,7 +39,11 @@ test.describe("AUTH_TYPE=SSO gate — local login/register UI must be hidden", (
     // routes is documented in skills.md §5.
     const routes = LOCAL_AUTH_ROUTES[app.name] ?? [];
     if (routes.length === 0) {
-      test.skip(`${app.name}: no LOCAL_AUTH_ROUTES configured — add the app's local-auth paths to enable E11/E12 (see skills.md §5)`, () => {});
+      test(`${app.name}: LOCAL_AUTH_ROUTES must be configured for E11/E12`, async () => {
+        throw new Error(
+          `${app.name}: no LOCAL_AUTH_ROUTES configured. Add the app's local-auth paths to enforce E11/E12 coverage.`
+        );
+      });
       continue;
     }
     for (const route of routes) {
@@ -48,9 +52,10 @@ test.describe("AUTH_TYPE=SSO gate — local login/register UI must be hidden", (
         // the IDP, the SSO gate is doing its job at the routing layer.
         // If we stay on the app, the SPA must not render a password
         // form — the gate must be enforced at the UI layer too.
-        const res = await page
-          .goto(`${app.url}${route}`, { waitUntil: "domcontentloaded", timeout: 30_000 })
-          .catch(() => null);
+        const res = await page.goto(`${app.url}${route}`, {
+          waitUntil: "domcontentloaded",
+          timeout: 30_000,
+        });
 
         const landedUrl = page.url();
         const status = res?.status();

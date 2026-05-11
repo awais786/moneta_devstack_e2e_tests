@@ -32,18 +32,21 @@ async function probeHttp(httpUrl: string): Promise<
 > {
   const ctx = await request.newContext({ ignoreHTTPSErrors: true });
   try {
-    const res = await ctx
+    const out = await ctx
       .get(httpUrl, { maxRedirects: 0, timeout: 15_000 })
       .catch((e) => e);
-    if (res instanceof Error) {
-      // TCP refused / DNS / network error — connection refused is the
-      // safest possible outcome (no HTTP server listening on :80).
-      return { kind: "refused" };
+    if (out instanceof Error) {
+      const msg = String(out.message || out);
+      // Only explicit reachability failures count as "port 80 closed".
+      if (/ECONNREFUSED|EHOSTUNREACH|ENETUNREACH/i.test(msg)) {
+        return { kind: "refused" };
+      }
+      throw new Error(`HTTP probe failed for ${httpUrl}: ${msg}`);
     }
     return {
       kind: "response",
-      status: res.status(),
-      location: res.headers()["location"],
+      status: out.status(),
+      location: out.headers()["location"],
     };
   } finally {
     await ctx.dispose();

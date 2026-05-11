@@ -2,10 +2,10 @@ import { test, expect } from "../../fixtures";
 import { BrowserContext, Page } from "@playwright/test";
 import {
   MAIN_URL,
-  COGNITO_DOMAIN,
   AUTH_COOKIE,
   COOKIE_DOMAIN,
   COOKIE_DOMAIN_REGEX,
+  isAuthWall,
 } from "../../constants";
 
 const SESSION_LS_KEY = "foss_cognito_alive_ts";
@@ -19,8 +19,8 @@ async function getOauthCookie(context: BrowserContext) {
   return cookies.find((c) => c.name === AUTH_COOKIE);
 }
 
-async function isOnCognito(page: Page): Promise<boolean> {
-  return page.url().includes(COGNITO_DOMAIN);
+async function isOnAuthWall(page: Page): Promise<boolean> {
+  return isAuthWall(page.url());
 }
 
 // ---------------------------------------------------------------------------
@@ -32,7 +32,7 @@ test.describe("SSO Login Flow", () => {
     await page.goto(MAIN_URL);
     await page.waitForLoadState("networkidle");
 
-    expect(await isOnCognito(page)).toBe(false);
+    expect(await isOnAuthWall(page)).toBe(false);
     expect(page.url()).toContain(COOKIE_DOMAIN);
   });
 
@@ -98,7 +98,7 @@ test.describe("Session Persistence", () => {
     expect(cookieAfter!.value).toBe(cookieBefore!.value);
 
     // No bounce to Cognito, lands on the same URL
-    expect(await isOnCognito(page)).toBe(false);
+    expect(await isOnAuthWall(page)).toBe(false);
     expect(page.url()).toBe(firstUrl);
   });
 });
