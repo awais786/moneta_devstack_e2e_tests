@@ -59,9 +59,14 @@ test.describe("AUTH_TYPE=SSO gate — local login/register UI must be hidden", (
           );
         }
 
-        // Any other 4xx/5xx is fine — the route exists but is gated /
-        // erroring before serving HTML. Nothing to assert on.
-        if (status !== undefined && status >= 400) return;
+        // 401/403 with body still rendering is the other quiet-pass
+        // case: a real local-login page that explicitly returns a
+        // forbidden status. Rare in practice (SSO gates almost
+        // always redirect via 302, caught by isAuthWall above), but
+        // worth checking the DOM anyway in case the SPA renders
+        // alongside the error status.
+        // 5xx is server-error noise; nothing to assert on.
+        if (status !== undefined && status >= 500) return;
 
         // Give SPAs ~1s to hydrate; if a password form was going to
         // render, it does so within hydration.
@@ -76,10 +81,20 @@ test.describe("AUTH_TYPE=SSO gate — local login/register UI must be hidden", (
           `${app.name} ${route}: rendered ${passwordInputs} password input(s) at ${landedUrl} — SSO mode must hide local login UI (RULES.md §1 "AUTH_TYPE gate"). The SPA is exposing a credential-entry surface.`
         ).toBe(0);
 
-        // (2) No visible local-login affordance. Catches SPAs that
-        // render a password-equivalent via a custom component or text
-        // (`autocomplete="current-password"` on a styled div, etc.).
-        // Counts elements containing this text, not just inputs.
+        // (2) No visible local-login affordance.
+        //
+        // Intentionally NARROW: matches text that's unambiguously
+        // local-credential UI (`forgot password`, `reset password`,
+        // `sign in with password`, `continue with email`). Bare
+        // "Sign in" / "Log in" buttons are NOT matched, because the
+        // SSO redirect page itself renders one (clicking it starts
+        // the IDP flow). Broadening here would false-positive on the
+        // legitimate auth entry surface.
+        //
+        // Consequence: a SPA that renders a local-login form with no
+        // "Forgot password" / "Continue with email" affordances
+        // escapes this check. The `input[type=password]` check above
+        // is the stronger signal; this regex is a low-FP backstop.
         const LOCAL_AUTH_TEXT_RE =
           /(sign\s*in|log\s*in)\s*with\s*password|forgot\s*password|reset\s*password|continue\s*with\s*email/i;
         const localAuthText = await page
@@ -88,7 +103,7 @@ test.describe("AUTH_TYPE=SSO gate — local login/register UI must be hidden", (
           .count();
         expect(
           localAuthText,
-          `${app.name} ${route}: visible "${LOCAL_AUTH_TEXT_RE}" text at ${landedUrl} — SSO mode must hide local-login affordances even when no <input type=password> is present.`
+          `${app.name} ${route}: visible local-login affordance text at ${landedUrl} — SSO mode must hide local-login UI even when no <input type=password> is present.`
         ).toBe(0);
       });
     }

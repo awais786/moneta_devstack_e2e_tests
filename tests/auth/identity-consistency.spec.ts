@@ -140,13 +140,24 @@ test.describe("Cross-app identity consistency", () => {
       await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
     }
 
-    // Ground truth: ask oauth2-proxy what username it's forwarding to
-    // the backends. The `user` field here is the upstream Cognito
-    // identifier (typically a bare username — `1020010000019120` —
-    // when the pool is bare-username, or a full email if the pool
-    // pre-emails the subject). Each backend's synthesized email MUST
-    // start with this value so a uniform-but-wrong fallback (every
-    // backend returning `noreply@askii.ai`) can't pass the test.
+    // Ask oauth2-proxy what username it's forwarding to the backends.
+    // The `user` field is the upstream Cognito identifier (typically
+    // a bare username — `1020010000019120` — when the pool is
+    // bare-username, or a full email if the pool pre-emails the
+    // subject). Backends' synthesized emails must start with this
+    // value.
+    //
+    // LIMITATION: oauth2-proxy is part of the same chain we're
+    // verifying. If the misconfiguration is in oauth2-proxy itself
+    // (or in an env var read by BOTH oauth2-proxy AND every backend),
+    // the upstream value here is already wrong and the canonical
+    // check below passes vacuously. The only way to close this fully
+    // would be to hit Cognito's `/userInfo` directly with the access
+    // token — not currently possible from a Playwright context
+    // without exposing the access token at the proxy. The check
+    // still catches the more likely failure mode (one backend's env
+    // diverges from the others), which is what RULES.md §1 calls
+    // out.
     const oauthUserCookie = await cookieHeaderFor(context, APP_URLS.PM);
     const oauthCtx = await request.newContext({
       extraHTTPHeaders: { cookie: oauthUserCookie },

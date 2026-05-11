@@ -12,20 +12,34 @@ import { APPS, APP_URLS, isAuthWall } from "../../constants";
 //       where mpass-auth is accidentally removed from a router.
 //
 //   (B) "strip-auth-headers is wired" — authenticated request with a
-//       spoofed `X-Auth-Request-Email` for a DIFFERENT user must
-//       return the legitimate (cookie-derived) user's identity, not
-//       the attacker's. This is the actual strip-middleware test: the
-//       request reaches the backend (so the chain runs end-to-end),
-//       and the assertion observes whether the attacker's header
-//       value was scrubbed before reaching it.
+//       spoofed `X-Auth-Request-Email` for a DIFFERENT user. The
+//       request reaches the backend (so the full chain runs); we
+//       assert the returned identity is the cookie-derived one.
 //
-// RULES.md §1 "SSO chain" requires `strip-auth-headers, mpass-auth`
-// in that order. Without strip — or with strip placed AFTER mpass-auth
-// — a forged `X-Auth-Request-Email` reaches the backend alongside the
-// legitimate one added by mpass-auth. HTTP duplicate-header semantics
-// vary by server: the backend might trust either value. Either way,
-// the attacker can flip identity for any logged-in session by adding
-// the header to their own requests.
+//       LIMITATIONS — this is a partial check, not iron-clad proof:
+//
+//       1. Traefik's ForwardAuth often REPLACES inbound headers
+//          listed in `authResponseHeaders` with oauth2-proxy's value
+//          rather than appending. If your stack replaces, the
+//          attacker's value gets overwritten by mpass-auth even if
+//          strip is removed — the test passes on a misconfiguration
+//          it claims to catch.
+//       2. If Traefik appends (creating duplicate headers), backend
+//          behavior diverges: Django/Express/FastAPI/Node all handle
+//          duplicate `X-Auth-Request-Email` differently (first wins,
+//          last wins, comma-joined, error). The test only catches
+//          the "first wins" backends.
+//
+//       What this test DOES reliably catch:
+//          - mpass-auth accidentally removed from the router (the
+//            inbound header would be the ONLY one present →
+//            attacker identity returned)
+//          - Backend that explicitly prefers inbound headers over
+//            ForwardAuth-injected ones (rare but exists in misconfig)
+//
+//       What it does NOT catch: a missing `strip-auth-headers` on
+//       stacks where Traefik replaces. RULES.md §1 keeps that as an
+//       audit invariant; the live test here is a partial backstop.
 
 const SPOOFED_HEADERS = {
   "X-Auth-Request-Email": "attacker@evil.example",
@@ -85,6 +99,24 @@ const IDENTITY_PROBES: Record<string, IdentityProbe> = {
       await c.dispose();
     }
   },
+  Penpot: async (ctx, extra) => {
+    const cookie = await cookieHeaderFor(ctx, APP_URLS.Penpot);
+    const c = await request.newContext({ extraHTTPHeaders: { cookie, ...extra } });
+    try {
+      const r = await c.get(`${APP_URLS.Penpot}/api/rpc/command/get-profile`);
+      const body = (await r.json()) as unknown;
+      // Penpot speaks Transit-JSON: a flat array with `~:email` followed
+      // by the value. Mirrors the extractor in identity-consistency.
+      if (!Array.isArray(body)) throw new Error("Penpot non-Transit response");
+      const idx = body.indexOf("~:email");
+      if (idx < 0 || idx + 1 >= body.length) {
+        throw new Error("Penpot Transit response missing :email");
+      }
+      return String(body[idx + 1]);
+    } finally {
+      await c.dispose();
+    }
+  },
 };
 
 test.describe("Header spoofing", () => {
@@ -122,7 +154,7 @@ test.describe("Header spoofing", () => {
   // and at least one identity probe returns it.
   test.describe("strip middleware (authed)", () => {
     for (const appName of Object.keys(IDENTITY_PROBES) as Array<keyof typeof IDENTITY_PROBES>) {
-      test(`${appName}: spoofed X-Auth-Request-Email is stripped before backend sees it`, async ({
+      test(`${appName}: spoofed X-Auth-Request-Email does not flip backend identity (partial)`, async ({
         context,
         page,
       }) => {
@@ -140,9 +172,14 @@ test.describe("Header spoofing", () => {
 
         const observed = await IDENTITY_PROBES[appName](context, SPOOFED_HEADERS);
 
+        // PARTIAL check — see file-header LIMITATIONS comment. A pass
+        // here means the spoof didn't reach the backend (or did and the
+        // backend ignored it). A divergence means the spoof reached
+        // the backend AND was preferred over mpass-auth's value —
+        // that's a hard fail.
         expect(
           observed,
-          `${appName}: backend returned the SPOOFED email when a forged X-Auth-Request-Email header was sent alongside a valid cookie. strip-auth-headers is missing or runs after mpass-auth. attacker=${SPOOFED_HEADERS["X-Auth-Request-Email"]} legitimate=${legitimate} observed=${observed}`
+          `${appName}: backend returned the SPOOFED email when a forged X-Auth-Request-Email was sent alongside a valid cookie. The inbound header reached the upstream AND was preferred over mpass-auth's value. attacker=${SPOOFED_HEADERS["X-Auth-Request-Email"]} legitimate=${legitimate} observed=${observed}`
         ).toBe(legitimate);
       });
     }
