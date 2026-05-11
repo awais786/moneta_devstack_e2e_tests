@@ -120,7 +120,11 @@ test.describe("Header spoofing", () => {
           });
           const finalUrl = r.url();
           const status = r.status();
-          const ok = isAuthWall(finalUrl) || status >= 400;
+          expect(
+            status,
+            `${app.name}: unauth spoof probe returned ${status} on ${finalUrl} (server error, cannot validate auth gate)`
+          ).toBeLessThan(500);
+          const ok = isAuthWall(finalUrl) || status === 401 || status === 403;
           expect(
             ok,
             `${app.name}: unauth'd request reached ${finalUrl} with status ${status} — mpass-auth is not in front of / on this router.`

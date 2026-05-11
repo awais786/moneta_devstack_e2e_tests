@@ -92,7 +92,14 @@ export const APPS: ReadonlyArray<{ name: AppName; url: string }> =
 // ---------------------------------------------------------------------------
 
 export function isAuthWall(url: string): boolean {
-  return url.includes(AUTH_PROXY_DOMAIN) || IDP_HOSTS.some((h) => url.includes(h));
+  try {
+    const host = new URL(url).hostname;
+    const isHostOrSubdomain = (candidate: string): boolean =>
+      host === candidate || host.endsWith(`.${candidate}`);
+    return isHostOrSubdomain(AUTH_PROXY_DOMAIN) || IDP_HOSTS.some((h) => isHostOrSubdomain(h));
+  } catch {
+    return false;
+  }
 }
 
 // Regex matching any IDP host (escaped). Used by login flow to detect the IDP step.

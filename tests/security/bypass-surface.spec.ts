@@ -87,10 +87,16 @@ test.describe("Bypass surface — public paths reachable, protected paths gated"
       try {
         const { status, finalUrl } = await probe(ctx, `${app.url}/`);
         const bouncedToAuth = isAuthWall(finalUrl);
-        const refused = status >= 400;
+
         expect(
-          bouncedToAuth || refused,
-          `${app.name}: root / returned ${status} on ${finalUrl} without a cookie — catch-all auth gate may be broken. The bypass paths above all rely on the catch-all being closed; if root is open, the per-path bypass conclusions are meaningless.`
+          status,
+          `${app.name}: root / returned ${status} on ${finalUrl} (server error, cannot validate auth gate)`
+        ).toBeLessThan(500);
+
+        const clearlyGated = bouncedToAuth || status === 401 || status === 403;
+        expect(
+          clearlyGated,
+          `${app.name}: root / is not clearly gated (status=${status}, final=${finalUrl})`
         ).toBe(true);
       } finally {
         await ctx.dispose();

@@ -11,12 +11,16 @@ export async function cognitoLogin(page: Page): Promise<void> {
   await page.goto(MAIN_URL, { waitUntil: "domcontentloaded" });
 
   if (!IDP_REGEX.test(page.url())) {
-    await page.getByRole("button", { name: /^login|sign in/i }).first().click();
+    const loginCta = page
+      .getByRole("button", { name: /(log\s*in|sign\s*in)/i })
+      .or(page.getByRole("link", { name: /(log\s*in|sign\s*in)/i }))
+      .first();
+    await loginCta.click({ timeout: 10000 });
   }
 
   await page.waitForURL(IDP_REGEX, { timeout: 45000 });
 
-  const passwordChooser = page.getByRole("button", { name: /password login|username and password/i });
+  const passwordChooser = page.getByRole("button", { name: /(password login|username and password)/i });
   if (await passwordChooser.count()) {
     await passwordChooser.first().click();
   }

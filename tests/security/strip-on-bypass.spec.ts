@@ -77,6 +77,13 @@ test.describe("Bypass routers — reachability smoke", () => {
           status,
           `${target.name}: bypass path returned ${status} on ${finalUrl} — upstream errored. Investigate the bypass router config.`
         ).toBeLessThan(500);
+
+        if (target.url.endsWith("/god-mode")) {
+          expect(
+            status,
+            `${target.name}: expected reachable admin bypass surface, got ${status} on ${finalUrl}`
+          ).toBeLessThan(400);
+        }
       } finally {
         await ctx.dispose();
       }
