@@ -1,10 +1,14 @@
 # FOSS E2E — Playwright Test Suite
 
-End-to-end tests for the FOSS platform. **34 tests across 8 spec files**,
+End-to-end tests for the FOSS platform. **97 tests across 16 spec files**,
 covering: SSO chain, multi-app session sharing, cookie expiry bounds,
 session lifecycle (logout / invalidation / replay / deletion), per-app link
-coverage, the Plane god-mode admin escape hatch, and the full
-login → 4 apps → logout user journey.
+coverage, the Plane god-mode admin escape hatch, the full
+login → 5 apps → logout user journey, and the SSO-rule invariants from
+[`sso-rules` RULES.md](https://github.com/awais786/sso-rules) (header
+spoofing, bypass discipline, security-header coverage on every router
+type, no local-login UI in SSO mode, cross-app identity consistency,
+HTTP plaintext lockdown).
 
 The suite is **environment-agnostic**. One env var (`FOSS_BASE_URL`) drives
 the entire host topology. Pointing at sandbox, staging, prod, or a local
@@ -58,9 +62,10 @@ See `.env.example` for everything.
 
 ```bash
 npm test                  # all tests, chromium
-npm run test:auth         # tests/auth/        — SSO chain, sharing, lifecycle
+npm run test:auth         # tests/auth/        — SSO, sharing, lifecycle, identity
 npm run test:apps         # tests/apps/        — per-app + god-mode
-npm run test:flows        # tests/flows/       — login → 4 apps → logout
+npm run test:flows        # tests/flows/       — login → 5 apps → logout
+npm run test:security     # tests/security/    — headers, plaintext, spoof, bypass
 npm run test:all-browsers # full suite × chromium + firefox + webkit
 npm run report            # open last HTML report
 ```
@@ -73,11 +78,13 @@ npx dotenv -- npx playwright test -g "Log out of all apps"
 
 ## What's covered
 
-The full invariant contract lives in **`skills.md`** (17 universal rules).
-Highlights:
+The full invariant contract lives in **`skills.md`** (universal rules) and
+[`sso-rules` RULES.md](https://github.com/awais786/sso-rules) (per-app +
+edge-layer rules). Highlights:
 
+### Session + SSO
 - **SSO chain** — `_oauth2_proxy` cookie shape (Secure / HttpOnly / SameSite=Lax),
-  shared across all 4 subdomains, present after login, scoped to the
+  shared across all 5 subdomains, present after login, scoped to the
   platform domain.
 - **Cookie expiry** — `_oauth2_proxy` and per-app session cookies must expire
   within a 30-day SSO TTL bound. Browser-session cookies (`expires=-1`) and
@@ -85,41 +92,92 @@ Highlights:
 - **Session lifecycle** — UI logout clears the cookie; logout from one app
   invalidates all; pre-logout cookies cannot be replayed; deleting the SSO
   cookie locks every app behind the IDP.
+- **Twenty refresh after idle** — valid SSO cookie + cleared Twenty
+  local session + reload stays on Twenty (regression guard for the
+  refresh-after-expiry path).
+- **Cross-app identity consistency** — every backend's `/me`-shape
+  endpoint (Plane `/api/users/me/`, Outline `/api/auth.info`, Penpot
+  RPC `get-profile`, SurfSense `/users/me`) resolves the same logged-in
+  user to the same synthesized email. Catches `DEFAULT_EMAIL_DOMAIN`
+  drift across containers.
+
+### Per-app
 - **Per-app link coverage** — every internal `<a href>` on the start page
   loads <400, stays on the app's host, doesn't bounce to the auth wall, no
-  404 in title, and is clickable.
+  404 in title, and is clickable. Adapts to SPAs whose nav streams in /
+  mutates by route (Twenty).
 - **god-mode** (Plane admin) — `/god-mode/` and `/auth/get-csrf-token`
   bypass ForwardAuth; the page renders Plane's own admin form (not the SSO
   IDP); admin login works; wrong password is rejected; admin login does
   **not** issue the platform `_oauth2_proxy` cookie (separate session
   universe).
-- **End-to-end flow** — fresh login → all 4 apps load authed; per-app
-  `/oauth2/sign_out`; main portal "Log out of all apps" → all 4 apps
+- **End-to-end flow** — fresh login → all 5 apps load authed; per-app
+  `/oauth2/sign_out`; main portal "Log out of all apps" → all 5 apps
   bounce back to the IDP.
+
+### Edge layer (RULES.md §1)
+- **HTTP plaintext lockdown** — every host on port 80 redirects to https
+  or refuses the connection. No 2xx ever served over plain HTTP.
+- **Security headers** on every browser-facing router — HSTS (≥180d +
+  includeSubDomains), `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY|SAMEORIGIN`, `Referrer-Policy`,
+  `Permissions-Policy` denying camera / mic / geolocation. Covers
+  `*-secure`, `*-bypass`, `oauth2-proxy-secure`, and `oauth2-apps`
+  routers (headers are per-response, not host-cached — each router
+  type is verified separately).
+- **Header spoofing rejection** — sending `X-Auth-Request-*` headers
+  without a cookie must bounce to auth or 4xx; the
+  `strip-auth-headers` middleware must scrub inbound identity headers
+  before the backend can trust them. Verified on both `*-secure` and
+  `*-bypass` routers (defense-in-depth on bypass routers added in
+  `foss-server-bundle#30`).
+- **Bypass discipline** — static assets (`/favicon.ico`, `/robots.txt`)
+  reachable without auth; the catch-all `/` still gated. Catches both
+  over-protection of public assets and under-protection of the secure
+  catch-all (Electric `/v1/shape` exfiltration pattern).
+- **AUTH_TYPE=SSO gate** — local login / register / forgot-password
+  UI must be hidden in SSO mode. Every app's known local-auth routes
+  (Plane `/sign-in`, Outline `/auth/email`, Penpot `/#/auth/*`,
+  SurfSense `/login`, Twenty `/sign-in`, etc.) must have no reachable
+  `<input type="password">`.
 
 ## Test layout
 
 ```
 tests/
 ├── auth/
-│   ├── sso-login.spec.ts             # cookie shape, persistence
-│   ├── session-sharing.spec.ts       # cross-subdomain scope + expiry bounds
-│   └── session-lifecycle.spec.ts     # logout, replay, cookie deletion
+│   ├── sso-login.spec.ts                  # cookie shape, persistence
+│   ├── session-sharing.spec.ts            # cross-subdomain scope + expiry bounds
+│   ├── session-lifecycle.spec.ts          # logout, replay, cookie deletion
+│   ├── twenty-refresh-after-idle.spec.ts  # Twenty local-session re-issue from SSO cookie
+│   └── identity-consistency.spec.ts       # every backend resolves the same email
 ├── apps/
-│   ├── outline.spec.ts               # branding + link coverage
-│   ├── penpot.spec.ts                # branding + hash-route nav coverage
-│   ├── pm.spec.ts                    # link coverage
-│   ├── pm-godmode.spec.ts            # admin escape-hatch invariants
-│   └── surfsense.spec.ts             # link coverage
+│   ├── outline.spec.ts                    # branding + link coverage
+│   ├── penpot.spec.ts                     # branding + hash-route nav coverage
+│   ├── pm.spec.ts                         # link coverage
+│   ├── pm-godmode.spec.ts                 # admin escape-hatch invariants
+│   ├── surfsense.spec.ts                  # link coverage
+│   └── twenty.spec.ts                     # link coverage (SPA, route-mutating nav)
 ├── flows/
-│   └── login-logout-flow.spec.ts     # full e2e journey
+│   └── login-logout-flow.spec.ts          # full e2e journey
+├── security/
+│   ├── headers.spec.ts                    # canonical headers on *-secure, *-bypass,
+│   │                                      # oauth2-proxy-secure, oauth2-apps
+│   ├── http-no-plaintext.spec.ts          # no 2xx over plain HTTP on any host
+│   ├── header-spoofing.spec.ts            # X-Auth-Request-* spoof must be rejected
+│   ├── strip-on-bypass.spec.ts            # strip-auth-headers chained on bypass routers
+│   ├── bypass-surface.spec.ts             # static assets bypass, catch-all gated
+│   └── sso-mode-no-local-login.spec.ts    # no password input on local-auth routes
 └── lib/
-    └── link-coverage.ts              # registerLinkCoverage() factory
+    └── link-coverage.ts                   # registerLinkCoverage() factory
 ```
 
 `constants.ts` — single source of truth, derives every host from
 `FOSS_BASE_URL`.
-`skills.md` — invariant contract (what every app must satisfy).
+`skills.md` — local invariant contract (what every app must satisfy).
+[`sso-rules` RULES.md](https://github.com/awais786/sso-rules) — canonical
+edge-layer + per-app rules; the `security/` and `identity-consistency`
+tests verify these on the live deployment.
 
 ## Auth architecture
 
