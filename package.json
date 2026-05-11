@@ -9,6 +9,7 @@
     "test:auth": "dotenv -- playwright test tests/auth/",
     "test:apps": "dotenv -- playwright test tests/apps/",
     "test:flows": "dotenv -- playwright test tests/flows/",
+    "test:security": "dotenv -- playwright test tests/security/",
     "test:all-browsers": "BROWSERS=all dotenv -- playwright test",
     "install:browsers": "playwright install chromium firefox webkit",
     "install:browsers:ci": "playwright install chromium --with-deps",

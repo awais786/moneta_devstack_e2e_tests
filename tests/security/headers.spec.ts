@@ -1,5 +1,5 @@
 import { test, expect, request } from "@playwright/test";
-import { APPS, MAIN_URL } from "../../constants";
+import { APPS, MAIN_URL, AUTH_PROXY_DOMAIN, APP_URLS } from "../../constants";
 
 // HTTP security headers contract. These are set by the `security-headers`
 // Traefik middleware on every `*-secure` router (foss-server-bundle
@@ -82,10 +82,47 @@ async function fetchHeaders(url: string): Promise<Record<string, string>> {
 }
 
 test.describe("Security headers", () => {
-  for (const target of [
+  // Targets covered by the `*-secure` catch-all router on each host.
+  // These responses come from the security-headers middleware in the
+  // primary mpass-auth chain.
+  const SECURE_TARGETS = [
     { name: "Main portal", url: MAIN_URL },
     ...APPS.map((a) => ({ name: a.name, url: a.url })),
-  ]) {
+  ];
+
+  // Targets covered by routers that LIVE OUTSIDE the `*-secure` chain.
+  // The 2026-05 production rollout (foss-server-bundle#30) added the
+  // same `security-headers` middleware to every bypass + SSO-surface
+  // router. Headers are per-response, not host-cached — a browser
+  // checks `X-Frame-Options` on the specific response it's framing, so
+  // setting XFO on `plane-secure` does NOT protect `/god-mode` (served
+  // by `plane-bypass`). One test per router type proves the rollout
+  // landed.
+  const NON_SECURE_TARGETS = [
+    {
+      name: "Plane /god-mode (plane-bypass)",
+      url: `${APP_URLS.PM}/god-mode`,
+    },
+    {
+      name: "auth-proxy /oauth2/sign_in (oauth2-proxy-secure)",
+      url: `https://${AUTH_PROXY_DOMAIN}/oauth2/sign_in`,
+    },
+    {
+      name: "Outline /favicon.ico (outline-bypass static)",
+      url: `${APP_URLS.Outline}/favicon.ico`,
+    },
+    // `oauth2-apps` router: oauth2-proxy serves `/oauth2/*` on every
+    // app host (same process, different host binding). The targets
+    // below verify that the `security-headers` middleware fires for
+    // every host binding — not that each app emits headers
+    // independently (it doesn't; oauth2-proxy handles all of them).
+    ...APPS.map((a) => ({
+      name: `${a.name} /oauth2/sign_in (oauth2-apps)`,
+      url: `${a.url}/oauth2/sign_in`,
+    })),
+  ];
+
+  for (const target of [...SECURE_TARGETS, ...NON_SECURE_TARGETS]) {
     test(`${target.name} sets the canonical security headers`, async () => {
       const headers = await fetchHeaders(target.url);
       const failures: string[] = [];
