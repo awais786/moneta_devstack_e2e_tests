@@ -34,9 +34,9 @@ const LOCAL_AUTH_ROUTES: Record<AppName, string[]> = {
 test.describe("AUTH_TYPE=SSO gate — local login/register UI must be hidden", () => {
   for (const app of APPS) {
     // E11/E12 are per-app gated by the LOCAL_AUTH_ROUTES table — a new
-    // app added to APPS without a corresponding entry should skip
-    // these tests rather than crash on `undefined.map(...)`. Adding
-    // routes is documented in skills.md §5.
+    // app added to APPS without a corresponding entry should fail loudly
+    // so coverage cannot silently regress. Adding routes is documented in
+    // skills.md §5.
     const routes = LOCAL_AUTH_ROUTES[app.name] ?? [];
     if (routes.length === 0) {
       test(`${app.name}: LOCAL_AUTH_ROUTES must be configured for E11/E12`, async () => {

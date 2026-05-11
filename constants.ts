@@ -94,7 +94,9 @@ export const APPS: ReadonlyArray<{ name: AppName; url: string }> =
 export function isAuthWall(url: string): boolean {
   try {
     const host = new URL(url).hostname;
-    return host === AUTH_PROXY_DOMAIN || IDP_HOSTS.some((h) => host.includes(h));
+    const isHostOrSubdomain = (candidate: string): boolean =>
+      host === candidate || host.endsWith(`.${candidate}`);
+    return isHostOrSubdomain(AUTH_PROXY_DOMAIN) || IDP_HOSTS.some((h) => isHostOrSubdomain(h));
   } catch {
     return false;
   }

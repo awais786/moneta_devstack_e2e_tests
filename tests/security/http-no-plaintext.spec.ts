@@ -5,9 +5,13 @@ import { APPS, MAIN_URL, AUTH_PROXY_DOMAIN } from "../../constants";
 // outcomes when probed at `http://<host>/`:
 //
 //   1. HTTP → HTTPS redirect (301/308 with `Location: https://...`)
-//   2. Port 80 closed at TCP (connection refused / network error)
+//   2. Port 80 closed at TCP (connection refused / unreachable)
 //   3. 403 / 404 from Traefik with no body (entrypoint exists but
 //      refuses HTTP traffic)
+//
+// Other transport failures (e.g. DNS `ENOTFOUND`) fail loudly because
+// they indicate environment/host resolution drift, not a proven plaintext
+// lockdown outcome.
 //
 // Fail conditions:
 //
