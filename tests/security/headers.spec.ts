@@ -111,9 +111,11 @@ test.describe("Security headers", () => {
       name: "Outline /favicon.ico (outline-bypass static)",
       url: `${APP_URLS.Outline}/favicon.ico`,
     },
-    // `oauth2-apps` router: cross-subdomain /oauth2/* on every app host.
-    // The login form rendered here is browser-facing, so each app's
-    // oauth2 subpath must carry its own response headers.
+    // `oauth2-apps` router: oauth2-proxy serves `/oauth2/*` on every
+    // app host (same process, different host binding). The targets
+    // below verify that the `security-headers` middleware fires for
+    // every host binding — not that each app emits headers
+    // independently (it doesn't; oauth2-proxy handles all of them).
     ...APPS.map((a) => ({
       name: `${a.name} /oauth2/sign_in (oauth2-apps)`,
       url: `${a.url}/oauth2/sign_in`,

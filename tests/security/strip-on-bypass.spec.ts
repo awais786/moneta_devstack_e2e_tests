@@ -1,28 +1,30 @@
 import { test, expect, request } from "@playwright/test";
 import { APPS, APP_URLS, isAuthWall } from "../../constants";
 
-// Verifies the `strip-auth-headers` middleware is chained onto BYPASS
-// routers, not just `*-secure`. The 2026-05 production rollout
-// (foss-server-bundle#30) added strip as defense-in-depth on every
-// bypass + SSO-surface router, with the explicit rule "strip in front
-// of any browser-reachable upstream". Today none of the bypass paths
-// read `X-Auth-Request-*`, but the discipline must stay uniform so a
-// future bypass path that ever does read identity is safe by default.
+// Smoke test for the bypass + SSO-surface routers added in the 2026-05
+// production rollout (foss-server-bundle#30). The PR chained
+// `security-headers` and `strip-auth-headers` onto every browser-reachable
+// non-secure router.
 //
-// Test shape: send spoofed `X-Auth-Request-*` headers (no session
-// cookie) to BYPASS paths — endpoints that should serve content
-// directly without bouncing to Cognito. Expected: the request reaches
-// the upstream with the spoofed headers stripped. We can't directly
-// observe what the upstream saw, but if Traefik chains strip + the
-// upstream returns 200 with content (i.e. the bypass router fired
-// and the path is reachable), strip ran before the upstream — that's
-// the order the middleware chain enforces.
+// What this test ACTUALLY proves: the bypass routers are reachable,
+// fire on the documented paths, and don't 5xx — i.e. the router config
+// itself is healthy after the rollout.
 //
-// What this test catches: a bypass router that's missing strip
-// entirely. In that case, the inbound `X-Auth-Request-Email` header
-// passes through to the upstream. A future bypass surface that reads
-// identity (e.g. a hardened admin endpoint that decides to consume
-// X-Auth-Request-Email later) would silently trust attacker input.
+// What this test does NOT prove: that `strip-auth-headers` ran before
+// the upstream. None of the bypass paths exercised here
+// (`/favicon.ico`, `/god-mode`) currently read `X-Auth-Request-*`, so
+// strip presence is unobservable from outside the stack. The actual
+// strip-middleware validation lives in
+// `tests/security/header-spoofing.spec.ts` ("strip middleware (authed)"),
+// which targets a `*-secure` upstream that DOES read identity. We
+// leave the spoofed-header values in this test as documentation: if
+// a future bypass surface starts reading identity, this test grows
+// teeth without further changes (just swap `/favicon.ico` for the new
+// path and add an assertion on the response body).
+//
+// RULES.md §1 ("Bypass discipline") rule "strip in front of any
+// browser-reachable upstream" remains an audit invariant; the live
+// validation is in header-spoofing.spec.ts.
 
 const SPOOFED_HEADERS = {
   "X-Auth-Request-Email": "attacker@evil.example",
@@ -51,12 +53,15 @@ const BYPASS_TARGETS: { name: string; url: string }[] = [
   },
 ];
 
-test.describe("strip-auth-headers on bypass routers", () => {
+test.describe("Bypass routers — reachability smoke", () => {
   for (const target of BYPASS_TARGETS) {
-    test(`${target.name}: bypass path serves without trusting spoofed identity headers`, async () => {
+    test(`${target.name}: bypass path is reachable without 5xx`, async () => {
       const ctx = await request.newContext();
       try {
         const res = await ctx.get(target.url, {
+          // Spoofed headers attached so this test grows teeth if the
+          // bypass surface ever starts reading identity. See spec
+          // header comment for the strip-validation rationale.
           headers: SPOOFED_HEADERS,
           timeout: 15_000,
           maxRedirects: 5,
@@ -64,24 +69,20 @@ test.describe("strip-auth-headers on bypass routers", () => {
         const finalUrl = res.url();
         const status = res.status();
 
-        // Sanity precondition: this is a bypass path, so it must NOT
-        // bounce to auth. If it does, the path isn't actually bypassed
-        // (or it's gated some other way) and the strip-discipline
-        // conclusion below is meaningless.
+        // Bypass paths must NOT bounce to auth — that's the whole
+        // point of being on a bypass router. If they do, the router
+        // config regressed.
         expect(
           isAuthWall(finalUrl),
-          `${target.name}: expected bypass path but request bounced to auth — strip discipline cannot be verified on a path that's protected by mpass-auth. final=${finalUrl}`
+          `${target.name}: expected bypass path but request bounced to auth. final=${finalUrl}`
         ).toBe(false);
 
-        // The bypass router fired. By Traefik's middleware-chain
-        // semantics, `strip-auth-headers` runs before the upstream sees
-        // the request, so the spoofed headers were dropped at the edge.
-        // The remaining assertion guards against the failure mode where
-        // a path returns a server-error instead of the bypassed content:
-        // an upstream that 5xx'd never had strip applied either.
+        // Upstream healthy — no 5xx. This catches a router that points
+        // at a misconfigured / dead backend more than anything about
+        // middleware ordering.
         expect(
           status,
-          `${target.name}: bypass path returned ${status} on ${finalUrl} — upstream errored, can't conclude strip middleware ran. Investigate the bypass router config.`
+          `${target.name}: bypass path returned ${status} on ${finalUrl} — upstream errored. Investigate the bypass router config.`
         ).toBeLessThan(500);
       } finally {
         await ctx.dispose();

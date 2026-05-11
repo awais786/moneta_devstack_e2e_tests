@@ -1,75 +1,150 @@
-import { test, expect, request, APIResponse } from "@playwright/test";
-import { APPS, isAuthWall } from "../../constants";
+import { test, expect } from "../../fixtures";
+import { request, BrowserContext } from "@playwright/test";
+import { APPS, APP_URLS, isAuthWall } from "../../constants";
 
-// Verifies the `strip-auth-headers@docker` Traefik middleware actually
-// strips inbound `X-Auth-Request-*` headers before requests reach the
-// backend. Without that middleware (or if it's placed AFTER `mpass-auth`),
-// any external client can spoof identity by setting:
+// Two tests, addressing two distinct failure modes:
 //
-//   X-Auth-Request-Email: attacker@evil.com
-//   X-Auth-Request-User:  attacker
+//   (A) "auth-gate present"  — unauthenticated request with spoofed
+//       `X-Auth-Request-*` headers must NOT be granted access. This
+//       proves `mpass-auth` is in front of `/`, but does NOT exercise
+//       the strip middleware (the request is rejected before any
+//       backend sees it). Kept as a sanity guard against a regression
+//       where mpass-auth is accidentally removed from a router.
 //
-// Backends in this stack are configured with `AUTH_TYPE=SSO`, which makes
-// them trust these headers as authoritative identity. Strip middleware is
-// the only thing standing between an attacker and full account takeover.
+//   (B) "strip-auth-headers is wired" — authenticated request with a
+//       spoofed `X-Auth-Request-Email` for a DIFFERENT user must
+//       return the legitimate (cookie-derived) user's identity, not
+//       the attacker's. This is the actual strip-middleware test: the
+//       request reaches the backend (so the chain runs end-to-end),
+//       and the assertion observes whether the attacker's header
+//       value was scrubbed before reaching it.
 //
-// Test shape: send the spoofed headers with NO session cookie. Expected:
-// indistinguishable from an unauth'd request — bounces to the auth wall
-// (Cognito / mPass) or returns 4xx. A 2xx with app content means the
-// headers got through.
+// RULES.md §1 "SSO chain" requires `strip-auth-headers, mpass-auth`
+// in that order. Without strip — or with strip placed AFTER mpass-auth
+// — a forged `X-Auth-Request-Email` reaches the backend alongside the
+// legitimate one added by mpass-auth. HTTP duplicate-header semantics
+// vary by server: the backend might trust either value. Either way,
+// the attacker can flip identity for any logged-in session by adding
+// the header to their own requests.
 
 const SPOOFED_HEADERS = {
   "X-Auth-Request-Email": "attacker@evil.example",
   "X-Auth-Request-User": "attacker",
-  // oauth2-proxy also forwards these, so cover the full set the bundle
-  // configures backends to trust.
   "X-Auth-Request-Preferred-Username": "attacker",
   "X-Forwarded-Email": "attacker@evil.example",
   "X-Forwarded-User": "attacker",
 };
 
-async function fetchFinal(
-  ctx: Awaited<ReturnType<typeof request.newContext>>,
-  url: string,
-  headers: Record<string, string> = {}
-): Promise<APIResponse> {
-  // Follow redirects so we land where the request actually resolves.
-  // Playwright follows by default; cap at 5 to avoid infinite loops.
-  return ctx.get(url, { headers, timeout: 20_000, maxRedirects: 5 });
+async function cookieHeaderFor(ctx: BrowserContext, baseUrl: string): Promise<string> {
+  const cookies = await ctx.cookies(baseUrl);
+  return cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 }
 
-test.describe("Header spoofing — strip-auth-headers middleware", () => {
-  for (const app of APPS) {
-    test(`${app.name}: spoofed X-Auth-Request-* without cookie does not grant access`, async () => {
-      const ctx = await request.newContext({
-        ignoreHTTPSErrors: false,
-        // Fresh context — no SSO cookie.
+// Authed identity probes per backend. Same shape as
+// `tests/auth/identity-consistency.spec.ts` — kept inline rather than
+// shared because the two tests assert different things (consistency
+// vs. resistance to spoofing) and decoupling lets each evolve.
+type IdentityProbe = (
+  ctx: BrowserContext,
+  extraHeaders: Record<string, string>
+) => Promise<string>;
+
+const IDENTITY_PROBES: Record<string, IdentityProbe> = {
+  PM: async (ctx, extra) => {
+    const cookie = await cookieHeaderFor(ctx, APP_URLS.PM);
+    const c = await request.newContext({ extraHTTPHeaders: { cookie, ...extra } });
+    try {
+      const r = await c.get(`${APP_URLS.PM}/api/users/me/`);
+      const j = (await r.json()) as { email: string };
+      return j.email;
+    } finally {
+      await c.dispose();
+    }
+  },
+  Outline: async (ctx, extra) => {
+    const cookie = await cookieHeaderFor(ctx, APP_URLS.Outline);
+    const c = await request.newContext({
+      extraHTTPHeaders: { cookie, "content-type": "application/json", ...extra },
+    });
+    try {
+      const r = await c.post(`${APP_URLS.Outline}/api/auth.info`, { data: {} });
+      const j = (await r.json()) as { data: { user: { email: string } } };
+      return j.data.user.email;
+    } finally {
+      await c.dispose();
+    }
+  },
+  SurfSense: async (ctx, extra) => {
+    const cookie = await cookieHeaderFor(ctx, APP_URLS.SurfSense);
+    const c = await request.newContext({ extraHTTPHeaders: { cookie, ...extra } });
+    try {
+      const r = await c.get(`${APP_URLS.SurfSense}/users/me`);
+      const j = (await r.json()) as { email: string };
+      return j.email;
+    } finally {
+      await c.dispose();
+    }
+  },
+};
+
+test.describe("Header spoofing", () => {
+  // (A) — auth gate sanity. Cheap and runs without login. Catches a
+  // missing mpass-auth on the secure router.
+  test.describe("auth gate (unauth'd)", () => {
+    for (const app of APPS) {
+      test(`${app.name}: spoofed X-Auth-Request-* without cookie does not grant access`, async () => {
+        const ctx = await request.newContext();
+        try {
+          const r = await ctx.get(`${app.url}/`, {
+            headers: SPOOFED_HEADERS,
+            timeout: 20_000,
+            maxRedirects: 5,
+          });
+          const finalUrl = r.url();
+          const status = r.status();
+          const ok = isAuthWall(finalUrl) || status >= 400;
+          expect(
+            ok,
+            `${app.name}: unauth'd request reached ${finalUrl} with status ${status} — mpass-auth is not in front of / on this router.`
+          ).toBe(true);
+        } finally {
+          await ctx.dispose();
+        }
       });
+    }
+  });
 
-      try {
-        const spoofed = await fetchFinal(ctx, `${app.url}/`, SPOOFED_HEADERS);
-        const finalUrl = spoofed.url();
-        const status = spoofed.status();
+  // (B) — strip middleware validation. Sends a spoofed
+  // X-Auth-Request-Email for a DIFFERENT user, with the legitimate
+  // session cookie attached. If strip is in place, the backend sees
+  // only mpass-auth's added header (the real user); if strip is
+  // missing or misordered, the backend sees the attacker's value too
+  // and at least one identity probe returns it.
+  test.describe("strip middleware (authed)", () => {
+    for (const appName of Object.keys(IDENTITY_PROBES) as Array<keyof typeof IDENTITY_PROBES>) {
+      test(`${appName}: spoofed X-Auth-Request-Email is stripped before backend sees it`, async ({
+        context,
+        page,
+      }) => {
+        // Warm the host so per-app cookies (Outline/SurfSense session
+        // cookies, Plane Django session, Penpot opaque session) land
+        // in the jar before the probe.
+        const baseUrl = APP_URLS[appName as keyof typeof APP_URLS];
+        await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
 
-        const bouncedToAuth = isAuthWall(finalUrl);
-        const refused = status >= 400;
+        const legitimate = await IDENTITY_PROBES[appName](context, {});
+        expect(
+          legitimate,
+          `${appName}: baseline /me probe must return an email`
+        ).toMatch(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
+
+        const observed = await IDENTITY_PROBES[appName](context, SPOOFED_HEADERS);
 
         expect(
-          bouncedToAuth || refused,
-          `${app.name}: spoofed-header request without cookie did NOT bounce to auth and did NOT 4xx — likely strip-auth-headers middleware is missing or misordered. final=${finalUrl} status=${status}`
-        ).toBe(true);
-
-        // Strong assertion: if it didn't bounce to auth, status must be a
-        // hard reject (not a 2xx that leaks user content).
-        if (!bouncedToAuth) {
-          expect(
-            status,
-            `${app.name}: spoofed-header request stayed on host with non-error status ${status} — possible identity bypass. final=${finalUrl}`
-          ).toBeGreaterThanOrEqual(400);
-        }
-      } finally {
-        await ctx.dispose();
-      }
-    });
-  }
+          observed,
+          `${appName}: backend returned the SPOOFED email when a forged X-Auth-Request-Email header was sent alongside a valid cookie. strip-auth-headers is missing or runs after mpass-auth. attacker=${SPOOFED_HEADERS["X-Auth-Request-Email"]} legitimate=${legitimate} observed=${observed}`
+        ).toBe(legitimate);
+      });
+    }
+  });
 });

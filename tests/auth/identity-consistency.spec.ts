@@ -140,6 +140,34 @@ test.describe("Cross-app identity consistency", () => {
       await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
     }
 
+    // Ground truth: ask oauth2-proxy what username it's forwarding to
+    // the backends. The `user` field here is the upstream Cognito
+    // identifier (typically a bare username — `1020010000019120` —
+    // when the pool is bare-username, or a full email if the pool
+    // pre-emails the subject). Each backend's synthesized email MUST
+    // start with this value so a uniform-but-wrong fallback (every
+    // backend returning `noreply@askii.ai`) can't pass the test.
+    const oauthUserCookie = await cookieHeaderFor(context, APP_URLS.PM);
+    const oauthCtx = await request.newContext({
+      extraHTTPHeaders: { cookie: oauthUserCookie },
+    });
+    let upstreamUser: string;
+    try {
+      const r = await oauthCtx.get(`${APP_URLS.PM}/oauth2/userinfo`);
+      const j = (await r.json()) as { user: string; email?: string };
+      // Penpot/SurfSense convention: when oauth2-proxy receives a bare
+      // username it forwards it in `email` as-is; backends then
+      // synthesize. Use `email` if present (it's the actual value
+      // forwarded as X-Auth-Request-Email), else fall back to `user`.
+      upstreamUser = j.email || j.user;
+      expect(
+        upstreamUser,
+        `oauth2-proxy /oauth2/userinfo did not return a usable user field: ${JSON.stringify(j)}`
+      ).toBeTruthy();
+    } finally {
+      await oauthCtx.dispose();
+    }
+
     const results: { app: string; email: string }[] = [];
     const errors: { app: string; error: string }[] = [];
 
@@ -157,7 +185,7 @@ test.describe("Cross-app identity consistency", () => {
       `identity probe(s) failed:\n${JSON.stringify(errors, null, 2)}`
     ).toEqual([]);
 
-    // Every probe must return a string that looks like an email.
+    // Email-shape sanity.
     for (const r of results) {
       expect(
         r.email,
@@ -165,6 +193,27 @@ test.describe("Cross-app identity consistency", () => {
       ).toMatch(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
     }
 
+    // Canonical check: every backend's email local-part must match what
+    // oauth2-proxy is forwarding. Without this, the consistency check
+    // below passes vacuously if all backends share a uniform fallback
+    // (e.g. every container reading the same wrong env var). When
+    // upstreamUser already contains an `@`, compare full strings; when
+    // it's bare, compare against the local part.
+    const expectedLocalPart = upstreamUser.includes("@")
+      ? upstreamUser.toLowerCase()
+      : `${upstreamUser.toLowerCase()}@`;
+    for (const r of results) {
+      const lc = r.email.toLowerCase();
+      const matchesUpstream = upstreamUser.includes("@")
+        ? lc === expectedLocalPart
+        : lc.startsWith(expectedLocalPart);
+      expect(
+        matchesUpstream,
+        `${r.app}: identity ${r.email} does not derive from the oauth2-proxy upstream user (${upstreamUser}). DEFAULT_EMAIL_DOMAIN synthesis may be transforming the username instead of appending to it.`
+      ).toBe(true);
+    }
+
+    // Cross-backend consistency.
     const distinct = new Set(results.map((r) => r.email.toLowerCase()));
     expect(
       distinct.size,

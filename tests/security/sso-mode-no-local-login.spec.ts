@@ -44,25 +44,51 @@ test.describe("AUTH_TYPE=SSO gate — local login/register UI must be hidden", (
           .catch(() => null);
 
         const landedUrl = page.url();
+        const status = res?.status();
 
         // If we bounced to the IDP, the route is gated at routing — pass.
         if (isAuthWall(landedUrl)) return;
 
-        // Stayed on the app host (or somewhere else FOSS). Status >= 400
-        // is also fine — the route is gone / unreachable.
-        if (res && res.status() >= 400) return;
+        // 404 is the dangerous quiet pass: the upstream renamed the
+        // route, our test fixture rotted, and we'd be asserting "no
+        // password input on a missing page" — trivially true and zero
+        // signal. Fail loudly so the test fixture gets updated.
+        if (status === 404) {
+          throw new Error(
+            `${app.name} ${route}: returned 404 — upstream likely renamed this route. Update LOCAL_AUTH_ROUTES (test fixture is stale, not a real regression).`
+          );
+        }
+
+        // Any other 4xx/5xx is fine — the route exists but is gated /
+        // erroring before serving HTML. Nothing to assert on.
+        if (status !== undefined && status >= 400) return;
 
         // Give SPAs ~1s to hydrate; if a password form was going to
         // render, it does so within hydration.
         await page.waitForTimeout(1500);
 
+        // (1) No password input element.
         const passwordInputs = await page
           .locator('input[type="password"]')
           .count();
-
         expect(
           passwordInputs,
-          `${app.name} ${route}: rendered ${passwordInputs} password input(s) at ${landedUrl} — SSO mode must hide local login UI (RULES.md §1 "AUTH_TYPE gate"). Either the route should redirect to the IDP or the SPA should not render the password form when SSO is enabled.`
+          `${app.name} ${route}: rendered ${passwordInputs} password input(s) at ${landedUrl} — SSO mode must hide local login UI (RULES.md §1 "AUTH_TYPE gate"). The SPA is exposing a credential-entry surface.`
+        ).toBe(0);
+
+        // (2) No visible local-login affordance. Catches SPAs that
+        // render a password-equivalent via a custom component or text
+        // (`autocomplete="current-password"` on a styled div, etc.).
+        // Counts elements containing this text, not just inputs.
+        const LOCAL_AUTH_TEXT_RE =
+          /(sign\s*in|log\s*in)\s*with\s*password|forgot\s*password|reset\s*password|continue\s*with\s*email/i;
+        const localAuthText = await page
+          .getByText(LOCAL_AUTH_TEXT_RE)
+          .filter({ visible: true })
+          .count();
+        expect(
+          localAuthText,
+          `${app.name} ${route}: visible "${LOCAL_AUTH_TEXT_RE}" text at ${landedUrl} — SSO mode must hide local-login affordances even when no <input type=password> is present.`
         ).toBe(0);
       });
     }
