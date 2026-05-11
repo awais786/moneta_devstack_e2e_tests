@@ -1,6 +1,8 @@
 import { test, expect } from "../../fixtures";
 import { request, BrowserContext } from "@playwright/test";
 import { APPS, APP_URLS, isAuthWall } from "../../constants";
+import { extractPenpotTransitField } from "../lib/penpot-transit";
+import { SPOOFED_HEADERS } from "../lib/spoofed-headers";
 
 // Two tests, addressing two distinct failure modes:
 //
@@ -40,14 +42,6 @@ import { APPS, APP_URLS, isAuthWall } from "../../constants";
 //       What it does NOT catch: a missing `strip-auth-headers` on
 //       stacks where Traefik replaces. RULES.md §1 keeps that as an
 //       audit invariant; the live test here is a partial backstop.
-
-const SPOOFED_HEADERS = {
-  "X-Auth-Request-Email": "attacker@evil.example",
-  "X-Auth-Request-User": "attacker",
-  "X-Auth-Request-Preferred-Username": "attacker",
-  "X-Forwarded-Email": "attacker@evil.example",
-  "X-Forwarded-User": "attacker",
-};
 
 async function cookieHeaderFor(ctx: BrowserContext, baseUrl: string): Promise<string> {
   const cookies = await ctx.cookies(baseUrl);
@@ -104,15 +98,7 @@ const IDENTITY_PROBES: Record<string, IdentityProbe> = {
     const c = await request.newContext({ extraHTTPHeaders: { cookie, ...extra } });
     try {
       const r = await c.get(`${APP_URLS.Penpot}/api/rpc/command/get-profile`);
-      const body = (await r.json()) as unknown;
-      // Penpot speaks Transit-JSON: a flat array with `~:email` followed
-      // by the value. Mirrors the extractor in identity-consistency.
-      if (!Array.isArray(body)) throw new Error("Penpot non-Transit response");
-      const idx = body.indexOf("~:email");
-      if (idx < 0 || idx + 1 >= body.length) {
-        throw new Error("Penpot Transit response missing :email");
-      }
-      return String(body[idx + 1]);
+      return extractPenpotTransitField(await r.json(), "~:email");
     } finally {
       await c.dispose();
     }
@@ -173,13 +159,15 @@ test.describe("Header spoofing", () => {
         const observed = await IDENTITY_PROBES[appName](context, SPOOFED_HEADERS);
 
         // PARTIAL check — see file-header LIMITATIONS comment. A pass
-        // here means the spoof didn't reach the backend (or did and the
-        // backend ignored it). A divergence means the spoof reached
-        // the backend AND was preferred over mpass-auth's value —
-        // that's a hard fail.
+        // here means the spoof didn't reach the backend (or did and
+        // the backend ignored it). A divergence means the backend's
+        // view of identity changed under spoof: one of {strip
+        // ordering, backend header preference, Traefik append-mode
+        // duplicate handling} is broken — diagnosis requires looking
+        // at the chain directly, NOT inferring from the symptom.
         expect(
           observed,
-          `${appName}: backend returned the SPOOFED email when a forged X-Auth-Request-Email was sent alongside a valid cookie. The inbound header reached the upstream AND was preferred over mpass-auth's value. attacker=${SPOOFED_HEADERS["X-Auth-Request-Email"]} legitimate=${legitimate} observed=${observed}`
+          `${appName}: backend identity diverged under spoof. legitimate=${legitimate} observed=${observed} attacker_value=${SPOOFED_HEADERS["X-Auth-Request-Email"]}. Possible causes: missing strip-auth-headers, strip ordered after mpass-auth, backend that prefers inbound over ForwardAuth-injected headers, or Traefik append-mode duplicate-header tiebreak picking the inbound. See file-head LIMITATIONS.`
         ).toBe(legitimate);
       });
     }

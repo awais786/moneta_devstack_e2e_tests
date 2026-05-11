@@ -149,10 +149,12 @@ When an app sets a recognizable `<title>`, assert it once in
    registerLinkCoverage({ appName: "MyApp", baseUrl: APP_URLS.MyApp });
    ```
 3. (Optional) add a branding assertion in the same file.
-4. The shared suites (U1–U18, E1–E12) pick the new app up automatically via `APPS`.
+4. The shared suites (U1–U18 and E1–E12) pick the new app up automatically
+   via `APPS`. **E13 and E14 do NOT** — they're gated by the `PROBES` table
+   in `identity-consistency.spec.ts` and require step 5.
 5. To include the new app in `identity-consistency.spec.ts` (E13/E14), add a
-   probe entry with the app's `/me`-shape endpoint and its email-extraction
-   function.
+   probe entry to the `PROBES` array with the app's `/me`-shape endpoint and
+   its email-extraction function.
 
 ---
 

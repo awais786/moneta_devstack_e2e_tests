@@ -65,8 +65,17 @@ test.describe("AUTH_TYPE=SSO gate — local login/register UI must be hidden", (
         // always redirect via 302, caught by isAuthWall above), but
         // worth checking the DOM anyway in case the SPA renders
         // alongside the error status.
-        // 5xx is server-error noise; nothing to assert on.
-        if (status !== undefined && status >= 500) return;
+        //
+        // 5xx on a known-route fixture is the same shape of bug as a
+        // 404: the route was real when this test was written, the
+        // deployment now returns server-error, and a bare `return`
+        // would silently pass. Fail loudly so the regression
+        // surfaces.
+        if (status !== undefined && status >= 500) {
+          throw new Error(
+            `${app.name} ${route}: returned ${status} — upstream regression on a route this test fixture asserts exists. Either the route is broken (real bug) or it's been removed and the fixture needs updating.`
+          );
+        }
 
         // Give SPAs ~1s to hydrate; if a password form was going to
         // render, it does so within hydration.

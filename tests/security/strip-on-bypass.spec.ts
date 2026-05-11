@@ -1,5 +1,6 @@
 import { test, expect, request } from "@playwright/test";
 import { APPS, APP_URLS, isAuthWall } from "../../constants";
+import { SPOOFED_HEADERS } from "../lib/spoofed-headers";
 
 // Smoke test for the bypass + SSO-surface routers added in the 2026-05
 // production rollout (foss-server-bundle#30). The PR chained
@@ -25,14 +26,6 @@ import { APPS, APP_URLS, isAuthWall } from "../../constants";
 // RULES.md §1 ("Bypass discipline") rule "strip in front of any
 // browser-reachable upstream" remains an audit invariant; the live
 // validation is in header-spoofing.spec.ts.
-
-const SPOOFED_HEADERS = {
-  "X-Auth-Request-Email": "attacker@evil.example",
-  "X-Auth-Request-User": "attacker",
-  "X-Auth-Request-Preferred-Username": "attacker",
-  "X-Forwarded-Email": "attacker@evil.example",
-  "X-Forwarded-User": "attacker",
-};
 
 // Per-app bypass paths that are known to be served by a `*-bypass`
 // router (not the secure catch-all). Universal: every host serves

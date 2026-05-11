@@ -1,6 +1,7 @@
 import { test, expect } from "../../fixtures";
 import { request, BrowserContext } from "@playwright/test";
 import { APP_URLS } from "../../constants";
+import { extractPenpotTransitField } from "../lib/penpot-transit";
 
 // Verifies every backend's view of the logged-in user converges on the
 // same email. RULES.md §1 ("SSO chain") requires `DEFAULT_EMAIL_DOMAIN` to
@@ -71,17 +72,6 @@ async function cookieHeaderFor(ctx: BrowserContext, baseUrl: string): Promise<st
   return cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 }
 
-// Penpot speaks Transit-JSON: arrays where odd-indexed entries are keys
-// like `~:email` and the following entry is the value.
-function extractTransitEmail(body: unknown): string {
-  if (!Array.isArray(body)) throw new Error("Penpot response is not Transit-JSON");
-  const idx = body.indexOf("~:email");
-  if (idx < 0 || idx + 1 >= body.length) {
-    throw new Error("Penpot Transit response has no :email key");
-  }
-  return String(body[idx + 1]);
-}
-
 const PROBES: Probe[] = [
   {
     app: "PM",
@@ -110,7 +100,7 @@ const PROBES: Probe[] = [
     fetch: async (ctx, baseUrl) => {
       const ch = await cookieHeaderFor(ctx, baseUrl);
       const j = await getJSON<unknown>(ch, `${baseUrl}/api/rpc/command/get-profile`);
-      return extractTransitEmail(j);
+      return extractPenpotTransitField(j, "~:email");
     },
   },
   {
