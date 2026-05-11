@@ -19,11 +19,24 @@ export function extractPenpotTransitField(
       `Penpot RPC response missing Transit map marker "^ "; got first elem ${JSON.stringify(body[0])}`
     );
   }
-  const idx = body.indexOf(key);
-  if (idx < 0 || idx + 1 >= body.length) {
-    throw new Error(
-      `Penpot RPC response missing key ${key}: ${JSON.stringify(body).slice(0, 200)}`
-    );
+  // After the `"^ "` marker the array alternates key, value, key, value:
+  // keys live at odd indices (1, 3, 5, …), values at even indices
+  // (2, 4, 6, …). Scan ONLY key positions — a naive `indexOf` would
+  // match a value that happens to be the literal string `"~:email"`
+  // (e.g. a fullname field set to that string), returning the wrong
+  // field. Not a realistic case for real Penpot data, but the guard
+  // is essentially free.
+  for (let i = 1; i < body.length; i += 2) {
+    if (body[i] === key) {
+      if (i + 1 >= body.length) {
+        throw new Error(
+          `Penpot RPC response has key ${key} at position ${i} but no value follows`
+        );
+      }
+      return String(body[i + 1]);
+    }
   }
-  return String(body[idx + 1]);
+  throw new Error(
+    `Penpot RPC response missing key ${key}: ${JSON.stringify(body).slice(0, 200)}`
+  );
 }

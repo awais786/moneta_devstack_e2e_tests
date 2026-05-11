@@ -33,7 +33,16 @@ const LOCAL_AUTH_ROUTES: Record<AppName, string[]> = {
 
 test.describe("AUTH_TYPE=SSO gate — local login/register UI must be hidden", () => {
   for (const app of APPS) {
-    for (const route of LOCAL_AUTH_ROUTES[app.name]) {
+    // E11/E12 are per-app gated by the LOCAL_AUTH_ROUTES table — a new
+    // app added to APPS without a corresponding entry should skip
+    // these tests rather than crash on `undefined.map(...)`. Adding
+    // routes is documented in skills.md §5.
+    const routes = LOCAL_AUTH_ROUTES[app.name] ?? [];
+    if (routes.length === 0) {
+      test.skip(`${app.name}: no LOCAL_AUTH_ROUTES configured — add the app's local-auth paths to enable E11/E12 (see skills.md §5)`, () => {});
+      continue;
+    }
+    for (const route of routes) {
       test(`${app.name} ${route}: no reachable password input`, async ({ page }) => {
         // Fresh context (no SSO cookie). If the app still bounces us to
         // the IDP, the SSO gate is doing its job at the routing layer.
