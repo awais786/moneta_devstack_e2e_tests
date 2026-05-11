@@ -43,6 +43,11 @@ export async function resolveStartUrl(
  * the dashboard anchors a few hundred ms later. On slower CI runners this
  * race causes 0-link failures even though the page is healthy.
  *
+ * Twenty's SPA streams sidebar anchors in batches: the first `<a>` attaches
+ * within ~200ms (a table row link) while the main nav arrives ~1–2s later.
+ * Returning at the first attach yields a partial set, so we additionally
+ * wait for the anchor count to stop growing for ~1s.
+ *
  * `requireLinks=false` apps (Penpot canvas-SPA) skip the wait so the
  * discovery runs immediately and self-skips downstream tests.
  */
@@ -51,11 +56,29 @@ export async function waitForAnchors(
   opts: { requireLinks?: boolean; timeout?: number } = {}
 ): Promise<void> {
   if (opts.requireLinks === false) return;
+  const overallTimeout = opts.timeout ?? 30_000;
   await page
     .locator("a[href]")
     .first()
-    .waitFor({ state: "attached", timeout: opts.timeout ?? 30_000 })
+    .waitFor({ state: "attached", timeout: overallTimeout })
     .catch(() => {});
+
+  // Poll for anchor-count stability: ~1s with no new anchors. Cap at 5s
+  // so this never dominates the test budget on apps whose nav never
+  // settles (e.g. live-updating feeds).
+  const deadline = Date.now() + 5_000;
+  let lastCount = -1;
+  let stableTicks = 0;
+  while (Date.now() < deadline) {
+    const count = await page.locator("a[href]").count();
+    if (count === lastCount) {
+      if (++stableTicks >= 4) break;
+    } else {
+      stableTicks = 0;
+      lastCount = count;
+    }
+    await page.waitForTimeout(250);
+  }
 }
 
 export async function collectInternalHrefs(page: Page, host: string): Promise<string[]> {
@@ -234,10 +257,20 @@ export function registerLinkCoverage({
         expect(links.length).toBeGreaterThan(0);
 
         const failures: { href: string; reason: string }[] = [];
+        let clicked = 0;
         for (const href of links) {
           await page.goto(start, { waitUntil, timeout: 30000 });
           await dismissTour(page);
           await waitForAnchors(page, { requireLinks });
+
+          // SPAs whose sidebar mutates by route (e.g. Twenty: Settings
+          // sidebar only renders under /settings/*) won't re-render every
+          // discovery-time anchor after the reset goto. Re-collect the
+          // current page's anchors and skip any href that isn't present —
+          // the link is real, just not reachable from this view. L3
+          // already proved the href loads via direct `goto`.
+          const present = new Set(await collectInternalHrefs(page, HOST));
+          if (!present.has(href)) continue;
 
           const u = new URL(href);
           // Match the href as written in the DOM. SPAs with hash routing
@@ -272,12 +305,19 @@ export function registerLinkCoverage({
           } else if (new URL(landed).hostname !== HOST) {
             failures.push({ href, reason: `left ${HOST}: ${landed}` });
           }
+          clicked++;
         }
 
         expect(
           failures,
           `${appName} click failures:\n${JSON.stringify(failures, null, 2)}`
         ).toEqual([]);
+        // Ensure the test wasn't a no-op: at least one discovered link
+        // must have remained present on reset and been click-tested.
+        expect(
+          clicked,
+          `${appName}: no discovered links were present on reset — L7 ran zero clicks`
+        ).toBeGreaterThan(0);
       });
     }
   });
