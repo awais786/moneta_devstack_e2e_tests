@@ -78,8 +78,9 @@ jobs:
           path: test-results/
           retention-days: 7
 
-      # Slack notification — failure-only, plain text. Lists each failed
-      # test by name. Add `SLACK_WEBHOOK_URL` as a repo secret to enable.
+      # Slack notification — plain text. Failure path lists each failed
+      # test by name; success path posts a green-build heartbeat with the
+      # passing count. Add `SLACK_WEBHOOK_URL` as a repo secret to enable.
       # No-ops with a log message if unset.
       - name: Notify Slack on failure
         if: failure()
@@ -119,6 +120,39 @@ jobs:
           $RUN_URL
 
           $FAILED"
+
+          curl -sS -X POST -H "Content-Type: application/json" \
+            --data "$(jq -nc --arg text "$MESSAGE" '{text: $text}')" \
+            "$SLACK_WEBHOOK_URL"
+
+      - name: Notify Slack on success
+        if: success()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          SERVER: ${{ github.server_url }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL not set — skipping Slack notification."
+            exit 0
+          fi
+
+          if [ -f test-results/report.json ]; then
+            COUNT=$(jq '[.. | objects | select(.specs?) | .specs[] | select(.ok == true)] | length' \
+              test-results/report.json 2>/dev/null || echo 0)
+          else
+            COUNT="all"
+          fi
+
+          SHORT_SHA="${SHA:0:7}"
+          RUN_URL="$SERVER/$REPO/actions/runs/$RUN_ID"
+
+          MESSAGE="E2E Sandbox passed — $COUNT test(s) green
+          Branch: $REF @ $SHORT_SHA
+          $RUN_URL"
 
           curl -sS -X POST -H "Content-Type: application/json" \
             --data "$(jq -nc --arg text "$MESSAGE" '{text: $text}')" \
