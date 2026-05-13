@@ -1,11 +1,12 @@
 # FOSS E2E — Playwright Test Suite
 
-End-to-end tests for the FOSS platform. **124 tests across 18 spec files**,
+End-to-end tests for the FOSS platform. **125 tests across 19 spec files**,
 covering: SSO chain, multi-app session sharing, cookie expiry bounds,
 session lifecycle (logout / invalidation / replay / deletion), per-app link
 coverage, the Plane god-mode admin escape hatch, Outline's admin
 `/settings/*` SSO-gating + role split, Penpot's team-role RPC
-mutation round-trip, the full
+mutation round-trip, SurfSense's SearchSpace RBAC mutation
+round-trip, the full
 login → 5 apps → logout user journey, and the SSO-rule invariants from
 [`sso-rules` RULES.md](https://github.com/awais786/sso-rules) (header
 spoofing, bypass discipline, security-header coverage on every router
@@ -60,6 +61,9 @@ Optional:
 - `PENPOT_ADMIN_USER` / `PENPOT_ADMIN_PASS` — SSO user who is owner/admin
   on at least one Penpot team; enables the role-mutation round-trip
   test (promote a teammate via RPC, verify, restore) — self-skips otherwise
+- `SURFSENSE_ADMIN_USER` / `SURFSENSE_ADMIN_PASS` — SSO user who is
+  Owner of at least one SurfSense SearchSpace; enables the
+  RBAC-PUT role-mutation round-trip — self-skips otherwise
 - `BROWSERS=all` — chromium + firefox + webkit (default: chromium only)
 - `FOSS_COGNITO_DOMAIN` / `FOSS_MPASS_DOMAIN` — IDP overrides (don't derive
   from base URL)
@@ -133,6 +137,13 @@ edge-layer rules). Highlights:
   non-owner teammate, promotes them via RPC, verifies the change in a
   re-fetched member list, and restores the original role in a `finally`
   block. Locks in the round-trip contract end-to-end.
+- **SurfSense admin** (SearchSpace RBAC) — Same shape as Penpot, but
+  via plain JSON: SurfSense has no global admin (`is_superuser=False`
+  hard-coded for proxy-auth users); admin is per-SearchSpace
+  (Owner/Editor/Viewer). `SURFSENSE_ADMIN_USER` discovers a space they
+  Own, picks a non-self non-Owner member, flips their `role_id` via
+  `PUT /api/rbac/searchspaces/<id>/members/<id>`, verifies in a
+  re-fetched member list, and restores in `finally`.
 - **End-to-end flow** — fresh login → all 5 apps load authed; per-app
   `/oauth2/sign_out`; main portal "Log out of all apps" → all 5 apps
   bounce back to the IDP.
@@ -181,6 +192,7 @@ tests/
 │   ├── pm.spec.ts                         # link coverage
 │   ├── pm-godmode.spec.ts                 # admin escape-hatch invariants
 │   ├── surfsense.spec.ts                  # link coverage
+│   ├── surfsense-admin.spec.ts            # SearchSpace RBAC mutation round-trip
 │   └── twenty.spec.ts                     # link coverage (SPA, route-mutating nav)
 ├── flows/
 │   └── login-logout-flow.spec.ts          # full e2e journey
@@ -255,6 +267,8 @@ artifact only on failure.
 | `SANDBOX_OUTLINE_ADMIN_PASS` | optional | same |
 | `SANDBOX_PENPOT_ADMIN_USER` | optional | enables Penpot role-mutation round-trip test |
 | `SANDBOX_PENPOT_ADMIN_PASS` | optional | same |
+| `SANDBOX_SURFSENSE_ADMIN_USER` | optional | enables SurfSense RBAC role-mutation round-trip test |
+| `SANDBOX_SURFSENSE_ADMIN_PASS` | optional | same |
 | `SLACK_WEBHOOK_URL` | optional | enables Slack failure notifications (with the list of failed tests) |
 
 **Variables tab** (optional):
@@ -281,6 +295,8 @@ artifact only on failure.
 | `PROD_OUTLINE_ADMIN_PASS` | optional | Outline admin SSO pass |
 | `PROD_PENPOT_ADMIN_USER` | optional | Penpot admin SSO user |
 | `PROD_PENPOT_ADMIN_PASS` | optional | Penpot admin SSO pass |
+| `PROD_SURFSENSE_ADMIN_USER` | optional | SurfSense Owner SSO user |
+| `PROD_SURFSENSE_ADMIN_PASS` | optional | SurfSense Owner SSO pass |
 
 **Variables (repo or environment)**:
 
