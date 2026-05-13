@@ -1,10 +1,11 @@
 # FOSS E2E — Playwright Test Suite
 
-End-to-end tests for the FOSS platform. **123 tests across 17 spec files**,
+End-to-end tests for the FOSS platform. **124 tests across 18 spec files**,
 covering: SSO chain, multi-app session sharing, cookie expiry bounds,
 session lifecycle (logout / invalidation / replay / deletion), per-app link
 coverage, the Plane god-mode admin escape hatch, Outline's admin
-`/settings/*` SSO-gating + role split, the full
+`/settings/*` SSO-gating + role split, Penpot's team-role RPC
+mutation round-trip, the full
 login → 5 apps → logout user journey, and the SSO-rule invariants from
 [`sso-rules` RULES.md](https://github.com/awais786/sso-rules) (header
 spoofing, bypass discipline, security-header coverage on every router
@@ -56,6 +57,9 @@ Optional:
 - `OUTLINE_ADMIN_USER` / `OUTLINE_ADMIN_PASS` — SSO user with `role=admin`
   in Outline; enables the admin-reaches-every-/settings-page block
   (otherwise that block self-skips)
+- `PENPOT_ADMIN_USER` / `PENPOT_ADMIN_PASS` — SSO user who is owner/admin
+  on at least one Penpot team; enables the role-mutation round-trip
+  test (promote a teammate via RPC, verify, restore) — self-skips otherwise
 - `BROWSERS=all` — chromium + firefox + webkit (default: chromium only)
 - `FOSS_COGNITO_DOMAIN` / `FOSS_MPASS_DOMAIN` — IDP overrides (don't derive
   from base URL)
@@ -122,6 +126,13 @@ edge-layer rules). Highlights:
   load, while the 8 admin-only pages (details, security, authentication,
   features, integrations, applications, import, export) are gated
   (Not Found, chunk-load failure, or never resolve past the SPA shell).
+- **Penpot admin** (team-role RPC) — Penpot has no `/admin` URL; admin
+  is a per-team state on the `team_profile_rel` row, gated server-side
+  by the `update-team-member-role` RPC handler. The test logs in as
+  `PENPOT_ADMIN_USER`, discovers a team they own/admin, picks a non-self
+  non-owner teammate, promotes them via RPC, verifies the change in a
+  re-fetched member list, and restores the original role in a `finally`
+  block. Locks in the round-trip contract end-to-end.
 - **End-to-end flow** — fresh login → all 5 apps load authed; per-app
   `/oauth2/sign_out`; main portal "Log out of all apps" → all 5 apps
   bounce back to the IDP.
@@ -166,6 +177,7 @@ tests/
 │   ├── outline.spec.ts                    # branding + link coverage
 │   ├── penpot.spec.ts                     # branding + hash-route nav coverage
 │   ├── outline-admin.spec.ts              # /settings/* SSO-gating + non-admin role split
+│   ├── penpot-admin.spec.ts               # team-role RPC mutation round-trip
 │   ├── pm.spec.ts                         # link coverage
 │   ├── pm-godmode.spec.ts                 # admin escape-hatch invariants
 │   ├── surfsense.spec.ts                  # link coverage
@@ -241,6 +253,8 @@ artifact only on failure.
 | `SANDBOX_PLANE_ADMIN_PASS` | optional | same |
 | `SANDBOX_OUTLINE_ADMIN_USER` | optional | enables Outline admin-reaches-/settings tests |
 | `SANDBOX_OUTLINE_ADMIN_PASS` | optional | same |
+| `SANDBOX_PENPOT_ADMIN_USER` | optional | enables Penpot role-mutation round-trip test |
+| `SANDBOX_PENPOT_ADMIN_PASS` | optional | same |
 | `SLACK_WEBHOOK_URL` | optional | enables Slack failure notifications (with the list of failed tests) |
 
 **Variables tab** (optional):
@@ -265,6 +279,8 @@ artifact only on failure.
 | `PROD_PLANE_ADMIN_PASS` | optional | god-mode admin pass |
 | `PROD_OUTLINE_ADMIN_USER` | optional | Outline admin SSO user |
 | `PROD_OUTLINE_ADMIN_PASS` | optional | Outline admin SSO pass |
+| `PROD_PENPOT_ADMIN_USER` | optional | Penpot admin SSO user |
+| `PROD_PENPOT_ADMIN_PASS` | optional | Penpot admin SSO pass |
 
 **Variables (repo or environment)**:
 

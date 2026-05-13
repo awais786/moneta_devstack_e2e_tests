@@ -41,6 +41,8 @@ jobs:
       PLANE_ADMIN_PASS:   ${{ secrets.PROD_PLANE_ADMIN_PASS }}
       OUTLINE_ADMIN_USER: ${{ secrets.PROD_OUTLINE_ADMIN_USER }}
       OUTLINE_ADMIN_PASS: ${{ secrets.PROD_OUTLINE_ADMIN_PASS }}
+      PENPOT_ADMIN_USER:  ${{ secrets.PROD_PENPOT_ADMIN_USER }}
+      PENPOT_ADMIN_PASS:  ${{ secrets.PROD_PENPOT_ADMIN_PASS }}
       # Prod IDP overrides — set repo variables / environment secrets only
       # if production uses different IDP hostnames than sandbox defaults.
       FOSS_MPASS_DOMAIN:   ${{ vars.PROD_FOSS_MPASS_DOMAIN }}

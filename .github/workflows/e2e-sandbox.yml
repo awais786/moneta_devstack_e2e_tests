@@ -37,6 +37,8 @@ jobs:
       PLANE_ADMIN_PASS:   ${{ secrets.SANDBOX_PLANE_ADMIN_PASS }}
       OUTLINE_ADMIN_USER: ${{ secrets.SANDBOX_OUTLINE_ADMIN_USER }}
       OUTLINE_ADMIN_PASS: ${{ secrets.SANDBOX_OUTLINE_ADMIN_PASS }}
+      PENPOT_ADMIN_USER:  ${{ secrets.SANDBOX_PENPOT_ADMIN_USER }}
+      PENPOT_ADMIN_PASS:  ${{ secrets.SANDBOX_PENPOT_ADMIN_PASS }}
 
     steps:
       - uses: actions/checkout@v4
