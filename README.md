@@ -1,9 +1,10 @@
 # FOSS E2E — Playwright Test Suite
 
-End-to-end tests for the FOSS platform. **97 tests across 16 spec files**,
+End-to-end tests for the FOSS platform. **123 tests across 17 spec files**,
 covering: SSO chain, multi-app session sharing, cookie expiry bounds,
 session lifecycle (logout / invalidation / replay / deletion), per-app link
-coverage, the Plane god-mode admin escape hatch, the full
+coverage, the Plane god-mode admin escape hatch, Outline's admin
+`/settings/*` SSO-gating + role split, the full
 login → 5 apps → logout user journey, and the SSO-rule invariants from
 [`sso-rules` RULES.md](https://github.com/awais786/sso-rules) (header
 spoofing, bypass discipline, security-header coverage on every router
@@ -52,6 +53,9 @@ FOSS_PASS=...
 Optional:
 - `PLANE_ADMIN_USER` / `PLANE_ADMIN_PASS` — enables the god-mode admin sign-in
   + wrong-password tests (otherwise those self-skip)
+- `OUTLINE_ADMIN_USER` / `OUTLINE_ADMIN_PASS` — SSO user with `role=admin`
+  in Outline; enables the admin-reaches-every-/settings-page block
+  (otherwise that block self-skips)
 - `BROWSERS=all` — chromium + firefox + webkit (default: chromium only)
 - `FOSS_COGNITO_DOMAIN` / `FOSS_MPASS_DOMAIN` — IDP overrides (don't derive
   from base URL)
@@ -111,6 +115,13 @@ edge-layer rules). Highlights:
   IDP); admin login works; wrong password is rejected; admin login does
   **not** issue the platform `_oauth2_proxy` cookie (separate session
   universe).
+- **Outline admin** (`/settings/*`) — *inverse* invariant of god-mode:
+  every admin URL sits fully behind SSO (cold context bounces through
+  ForwardAuth), and Outline enforces the admin/non-admin role split
+  server-side. Under a non-admin SSO user the 5 common-settings pages
+  load, while the 8 admin-only pages (details, security, authentication,
+  features, integrations, applications, import, export) are gated
+  (Not Found, chunk-load failure, or never resolve past the SPA shell).
 - **End-to-end flow** — fresh login → all 5 apps load authed; per-app
   `/oauth2/sign_out`; main portal "Log out of all apps" → all 5 apps
   bounce back to the IDP.
@@ -154,6 +165,7 @@ tests/
 ├── apps/
 │   ├── outline.spec.ts                    # branding + link coverage
 │   ├── penpot.spec.ts                     # branding + hash-route nav coverage
+│   ├── outline-admin.spec.ts              # /settings/* SSO-gating + non-admin role split
 │   ├── pm.spec.ts                         # link coverage
 │   ├── pm-godmode.spec.ts                 # admin escape-hatch invariants
 │   ├── surfsense.spec.ts                  # link coverage
@@ -227,6 +239,8 @@ artifact only on failure.
 | `SANDBOX_FOSS_PASS` | ✅ | SSO password |
 | `SANDBOX_PLANE_ADMIN_USER` | optional | enables god-mode admin tests |
 | `SANDBOX_PLANE_ADMIN_PASS` | optional | same |
+| `SANDBOX_OUTLINE_ADMIN_USER` | optional | enables Outline admin-reaches-/settings tests |
+| `SANDBOX_OUTLINE_ADMIN_PASS` | optional | same |
 | `SLACK_WEBHOOK_URL` | optional | enables Slack failure notifications (with the list of failed tests) |
 
 **Variables tab** (optional):
@@ -249,6 +263,8 @@ artifact only on failure.
 | `PROD_FOSS_PASS` | ✅ | SSO password |
 | `PROD_PLANE_ADMIN_USER` | optional | god-mode admin user |
 | `PROD_PLANE_ADMIN_PASS` | optional | god-mode admin pass |
+| `PROD_OUTLINE_ADMIN_USER` | optional | Outline admin SSO user |
+| `PROD_OUTLINE_ADMIN_PASS` | optional | Outline admin SSO pass |
 
 **Variables (repo or environment)**:
 

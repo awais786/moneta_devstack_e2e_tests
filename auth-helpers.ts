@@ -1,11 +1,16 @@
 import { Page } from "@playwright/test";
 import { MAIN_URL, IDP_REGEX, FOSS_HOST_REGEX } from "./constants";
 
-export async function cognitoLogin(page: Page): Promise<void> {
-  const user = process.env.FOSS_USER;
-  const pass = process.env.FOSS_PASS;
+export async function cognitoLogin(
+  page: Page,
+  opts?: { user?: string; pass?: string }
+): Promise<void> {
+  const user = opts?.user ?? process.env.FOSS_USER;
+  const pass = opts?.pass ?? process.env.FOSS_PASS;
   if (!user || !pass) {
-    throw new Error("FOSS_USER and FOSS_PASS env vars required");
+    throw new Error(
+      "cognitoLogin: provide {user, pass} or set FOSS_USER + FOSS_PASS in env"
+    );
   }
 
   await page.goto(MAIN_URL, { waitUntil: "domcontentloaded" });

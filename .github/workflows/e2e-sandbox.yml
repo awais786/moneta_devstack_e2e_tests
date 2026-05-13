@@ -33,8 +33,10 @@ jobs:
       FOSS_BASE_URL:    ${{ vars.SANDBOX_FOSS_BASE_URL || 'https://foss.arbisoft.com' }}
       FOSS_USER:        ${{ secrets.SANDBOX_FOSS_USER }}
       FOSS_PASS:        ${{ secrets.SANDBOX_FOSS_PASS }}
-      PLANE_ADMIN_USER: ${{ secrets.SANDBOX_PLANE_ADMIN_USER }}
-      PLANE_ADMIN_PASS: ${{ secrets.SANDBOX_PLANE_ADMIN_PASS }}
+      PLANE_ADMIN_USER:   ${{ secrets.SANDBOX_PLANE_ADMIN_USER }}
+      PLANE_ADMIN_PASS:   ${{ secrets.SANDBOX_PLANE_ADMIN_PASS }}
+      OUTLINE_ADMIN_USER: ${{ secrets.SANDBOX_OUTLINE_ADMIN_USER }}
+      OUTLINE_ADMIN_PASS: ${{ secrets.SANDBOX_OUTLINE_ADMIN_PASS }}
 
     steps:
       - uses: actions/checkout@v4
