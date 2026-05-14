@@ -140,6 +140,7 @@ jobs:
           RUN_URL="$SERVER/$REPO/actions/runs/$RUN_ID"
 
           MESSAGE="✅ E2E Non-Admin gating sanity — verified ($COUNT admin test(s) failed as expected)
+          Identity: SANDBOX_NORMAL_USER (non-admin) — FOSS_USER swapped to the non-admin secret for this run
           Branch: $REF @ $SHORT_SHA
           $RUN_URL
 
@@ -169,6 +170,7 @@ jobs:
           RUN_URL="$SERVER/$REPO/actions/runs/$RUN_ID"
 
           MESSAGE="⚠️ E2E Non-Admin sanity FAILED — Playwright suite passed GREEN with non-admin creds. Admin gating may be broken, or admin-positive assertions are not load-bearing.
+          Identity: SANDBOX_NORMAL_USER (non-admin) — FOSS_USER swapped to the non-admin secret for this run
           Branch: $REF @ $SHORT_SHA
           $RUN_URL"
 
