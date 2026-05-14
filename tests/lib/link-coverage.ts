@@ -1,4 +1,4 @@
-import { Page } from "@playwright/test";
+import { Page, Response } from "@playwright/test";
 import { test, expect } from "../../fixtures";
 import { isAuthWall } from "../../constants";
 
@@ -142,6 +142,64 @@ export interface LinkCoverageOptions {
   waitUntil?: WaitStrategy;
 }
 
+// Throttle: real humans read each page before clicking the next link.
+// Bursting through dozens of `goto`s in seconds trips per-user rate
+// limits on app servers (Outline returns HTTP 429 to /search, /drafts,
+// etc. when this suite runs at full speed). 500ms between visits keeps
+// us well under a typical 60-120 req/min cap. On 429, back off harder
+// and retry once — mirrors a human waiting and re-trying after a
+// transient error.
+const PAUSE_BETWEEN_LINKS_MS = 500;
+const RATE_LIMIT_BACKOFF_MS = 5_000;
+
+// Visit one internal link and report any failure (HTTP 4xx/5xx, auth-wall
+// bounce, host hop, or 404 title). Returns null on success.
+async function checkLink(
+  page: Page,
+  href: string,
+  host: string,
+  waitUntil: WaitStrategy
+): Promise<{ url: string; reason: string } | null> {
+  const tryGoto = async (): Promise<{ url: string; reason: string } | Response | null> => {
+    try {
+      return await page.goto(href, { waitUntil, timeout: 30000 });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      return { url: href, reason: `goto threw: ${message}` };
+    }
+  };
+
+  let res = await tryGoto();
+  if (res && "reason" in res) return res;
+  if (!res) return null;
+
+  // 429 recovery: pause and re-request once before treating as a hard
+  // failure.
+  if (res.status() === 429) {
+    await page.waitForTimeout(RATE_LIMIT_BACKOFF_MS);
+    const retried = await tryGoto();
+    if (retried && "reason" in retried) {
+      return { url: href, reason: `goto threw after 429 backoff: ${retried.reason}` };
+    }
+    if (!retried) return null;
+    res = retried;
+  }
+
+  const status = res.status();
+  if (status >= 400) return { url: href, reason: `HTTP ${status}` };
+
+  const landed = page.url();
+  if (isAuthWall(landed)) return { url: href, reason: `bounced to auth wall: ${landed}` };
+  if (new URL(landed).hostname !== host) {
+    return { url: href, reason: `left ${host}, landed on ${landed}` };
+  }
+  const title = (await page.title()).toLowerCase();
+  if (title.includes("404") || title.includes("not found")) {
+    return { url: href, reason: `404 title: ${title}` };
+  }
+  return null;
+}
+
 // Some apps (notably SurfSense) ship a product tour that overlays the page and
 // intercepts pointer events. Best-effort dismissal before discovery / clicks.
 async function dismissTour(page: import("@playwright/test").Page): Promise<void> {
@@ -206,34 +264,10 @@ export function registerLinkCoverage({
       expect(links.length).toBeGreaterThan(0);
 
       const failures: { url: string; reason: string }[] = [];
-      for (const href of links) {
-        const res = await page
-          .goto(href, { waitUntil, timeout: 30000 })
-          .catch((e) => {
-            failures.push({ url: href, reason: `goto threw: ${e.message}` });
-            return null;
-          });
-        if (!res) continue;
-
-        const status = res.status();
-        const landed = page.url();
-
-        if (status >= 400) {
-          failures.push({ url: href, reason: `HTTP ${status}` });
-          continue;
-        }
-        if (isAuthWall(landed)) {
-          failures.push({ url: href, reason: `bounced to auth wall: ${landed}` });
-          continue;
-        }
-        if (new URL(landed).hostname !== HOST) {
-          failures.push({ url: href, reason: `left ${HOST}, landed on ${landed}` });
-          continue;
-        }
-        const title = (await page.title()).toLowerCase();
-        if (title.includes("404") || title.includes("not found")) {
-          failures.push({ url: href, reason: `404 title: ${title}` });
-        }
+      for (let i = 0; i < links.length; i++) {
+        if (i > 0) await page.waitForTimeout(PAUSE_BETWEEN_LINKS_MS);
+        const fail = await checkLink(page, links[i], HOST, waitUntil);
+        if (fail) failures.push(fail);
       }
 
       expect(

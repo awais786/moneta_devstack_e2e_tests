@@ -1,10 +1,6 @@
 import { test, expect } from "../../fixtures";
-import { test as raw } from "@playwright/test";
-import {
-  APP_URLS,
-  IDP_REGEX,
-  isAuthWall,
-} from "../../constants";
+import { test as raw, type Page } from "@playwright/test";
+import { APP_URLS, IDP_REGEX, isAuthWall } from "../../constants";
 import { cognitoLogin } from "../../auth-helpers";
 
 // Identity model (sso-rules/admin.md): two SSO users across all apps.
@@ -17,6 +13,7 @@ const NORMAL_USER = process.env.NORMAL_USER;
 const NORMAL_PASS = process.env.NORMAL_PASS;
 
 const DOCS_HOST = new URL(APP_URLS.Outline).hostname;
+const SETTINGS_URL = `${APP_URLS.Outline}/settings`;
 
 // Outline has no separate /admin path and no ForwardAuth bypass for it.
 // Admin functionality lives in the /settings/* namespace, gated server-side
@@ -62,16 +59,17 @@ const ADMIN_ONLY_PATHS = [
 
 const ALL_PATHS = [...COMMON_PATHS, ...ADMIN_ONLY_PATHS] as const;
 
+const MAX_SETTINGS_ATTEMPTS = process.env.CI ? 3 : 2;
+
 // Outline serves the SPA shell with title "Outline" before the router
 // mounts the route component (which then sets the per-page title, e.g.
-// "Not Found - Outline" or "Members - Outline"). networkidle fires
-// before that title swap, so reading title at that point races with the
-// SPA. Wait for the title to leave the shell default before asserting.
-//
-// For admin-only paths under a non-admin user, the title sometimes
-// never updates (the route silently fails to render). Callers handle
-// that by treating "shell default" as one valid gated signal.
-async function waitForSpaTitle(page: import("@playwright/test").Page): Promise<string> {
+// "Not Found - Outline" or "Members - Outline"). The shell title is
+// also what's left visible if a route chunk fails to load on a slow CI
+// runner. waitForSpaTitle blocks until the shell default has been
+// replaced (or the timeout elapses, in which case callers can decide
+// whether the shell default is itself a meaningful signal — e.g. it is
+// for non-admin admin-only paths).
+async function waitForSpaTitle(page: Page): Promise<string> {
   const titleSettleTimeoutMs = process.env.CI ? 25_000 : 10_000;
   await page
     .waitForFunction(() => document.title.trim().toLowerCase() !== "outline", null, {
@@ -79,6 +77,57 @@ async function waitForSpaTitle(page: import("@playwright/test").Page): Promise<s
     })
     .catch(() => {});
   return (await page.title()).toLowerCase();
+}
+
+// Reach a /settings/<sub> page the way a real user does: open /settings
+// once, then click the in-page sub-nav <a href> for the target path.
+// Click-nav lets Outline's React router prefetch the chunk on hover and
+// preserves SPA state, which avoids the chunk-load race that direct
+// page.goto-ing each settings URL trips on CI.
+//
+// When the sub-nav link never appears on /settings, the most common
+// cause is the Outline server returning HTTP 429 on a chunk request
+// mid-render, leaving the sidebar half-populated. Reload /settings —
+// the same instinct a human has when a page renders incompletely — and
+// retry up to MAX_SETTINGS_ATTEMPTS.
+async function gotoSettingsPath(page: Page, path: string): Promise<void> {
+  if (path === "/settings") {
+    await page.goto(SETTINGS_URL, { waitUntil: "domcontentloaded", timeout: 30000 });
+    return;
+  }
+
+  const subLink = page.locator(`a[href="${path}"]`).first();
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_SETTINGS_ATTEMPTS; attempt++) {
+    await page.goto(SETTINGS_URL, { waitUntil: "domcontentloaded", timeout: 30000 });
+    try {
+      await expect(subLink).toBeVisible({ timeout: 10_000 });
+      lastError = undefined;
+      break;
+    } catch (e) {
+      lastError = e;
+      if (attempt < MAX_SETTINGS_ATTEMPTS) {
+        // Back off before reloading — gives a 429-triggered cooldown
+        // window time to clear before we re-request the chunks.
+        await page.waitForTimeout(attempt * 2000);
+      }
+    }
+  }
+  if (lastError) {
+    throw new Error(
+      `${path}: sub-nav link never appeared on /settings after ${MAX_SETTINGS_ATTEMPTS} attempts. Likely rate-limited (HTTP 429) on chunk loads.`
+    );
+  }
+
+  await subLink.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+  await subLink.click();
+  await expect(page).toHaveURL(new RegExp(`${escapeRegex(path)}(\\?|$)`), {
+    timeout: 15_000,
+  });
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[/\\^$*+?.()|[\]{}]/g, "\\$&");
 }
 
 // (1) Cold context: every admin URL must bounce through SSO.
@@ -95,14 +144,13 @@ raw.describe("Outline — admin /settings URLs (cold context)", () => {
           waitUntil: "domcontentloaded",
           timeout: 30000,
         });
-        await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
-        const landed = page.url();
-        const bouncedToSSO = isAuthWall(landed) || IDP_REGEX.test(landed);
-        expect(
-          bouncedToSSO,
-          `${path} must bounce through SSO — Outline admin is not bypass-routed. Landed: ${landed}`
-        ).toBe(true);
+        await expect
+          .poll(() => isAuthWall(page.url()) || IDP_REGEX.test(page.url()), {
+            message: `${path} must bounce through SSO — Outline admin is not bypass-routed. Last URL: ${page.url()}`,
+            timeout: 15_000,
+          })
+          .toBe(true);
       } finally {
         await ctx.close();
       }
@@ -128,40 +176,14 @@ raw.describe("Outline — non-admin role split (NORMAL_USER)", () => {
       const page = await ctx.newPage();
       try {
         await cognitoLogin(page, { user: NORMAL_USER!, pass: NORMAL_PASS! });
+        await gotoSettingsPath(page, path);
 
-        // Human-style nav: open /settings first, then click the sub-link
-        // for the target page (same rationale as the admin block below —
-        // click-nav lets React Router prefetch the chunk and avoids the
-        // chunk-load race on CI). For path === "/settings" we just load
-        // settings directly.
-        await page.goto(`${APP_URLS.Outline}/settings`, {
-          waitUntil: "domcontentloaded",
-          timeout: 30000,
-        });
-        await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
-
-        if (path !== "/settings") {
-          const subLink = page.locator(`a[href="${path}"]`).first();
-          await subLink.waitFor({ state: "visible", timeout: 10000 });
-          await subLink.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
-          await subLink.click();
-          const pathRegex = new RegExp(
-            path.replace(/[/\\^$*+?.()|[\]{}]/g, "\\$&") + "(\\?|$)"
-          );
-          await page.waitForURL(pathRegex, { timeout: 15000 });
-          await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
-        }
-
-        const landed = page.url();
-        expect(new URL(landed).hostname).toBe(DOCS_HOST);
+        await expect(page).toHaveURL(new RegExp(`https?://${escapeRegex(DOCS_HOST)}`));
         expect(
-          isAuthWall(landed),
-          `Non-admin bounced to auth wall on ${path}: ${landed}`
+          isAuthWall(page.url()),
+          `Non-admin bounced to auth wall on ${path}: ${page.url()}`
         ).toBe(false);
-        expect(
-          landed,
-          `Expected to land on ${path}, got ${landed}`
-        ).toContain(path);
+        await expect(page).toHaveURL(new RegExp(`${escapeRegex(path)}(\\?|$)`));
 
         const title = await waitForSpaTitle(page);
         expect(
@@ -182,17 +204,19 @@ raw.describe("Outline — non-admin role split (NORMAL_USER)", () => {
       try {
         await cognitoLogin(page, { user: NORMAL_USER!, pass: NORMAL_PASS! });
 
+        // Direct goto here is intentional — the admin-only sub-nav links
+        // are not rendered for non-admin users, so the click-through
+        // pattern from COMMON_PATHS can't apply. Outline gates the route
+        // server-side and we just need to confirm the gating signal.
         await page.goto(APP_URLS.Outline + path, {
           waitUntil: "domcontentloaded",
           timeout: 30000,
         });
-        await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
-        const landed = page.url();
-        expect(new URL(landed).hostname).toBe(DOCS_HOST);
+        await expect(page).toHaveURL(new RegExp(`https?://${escapeRegex(DOCS_HOST)}`));
         expect(
-          isAuthWall(landed),
-          `Admin-only ${path} must serve Not Found, not bounce to auth wall: ${landed}`
+          isAuthWall(page.url()),
+          `Admin-only ${path} must serve Not Found, not bounce to auth wall: ${page.url()}`
         ).toBe(false);
 
         const title = await waitForSpaTitle(page);
@@ -220,36 +244,11 @@ raw.describe("Outline — non-admin role split (NORMAL_USER)", () => {
 test.describe("Outline — admin (FOSS_USER) reaches every /settings page", () => {
   for (const path of ALL_PATHS) {
     test(`admin reaches ${path} with a real page title`, async ({ page }) => {
-      // Human-style navigation: load /settings once (the natural entry
-      // point — a user reaches it via the Account menu or by bookmark)
-      // and then click the in-page sub-nav links to reach each sub-page.
-      // Clicking real <a href> links lets Outline's React router
-      // prefetch the route chunk on hover and preserves SPA state — which
-      // avoids the chunk-load race that direct page.goto on each
-      // sub-route intermittently triggers on CI.
-      await page.goto(`${APP_URLS.Outline}/settings`, {
-        waitUntil: "domcontentloaded",
-        timeout: 30000,
-      });
-      await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+      await gotoSettingsPath(page, path);
 
-      if (path !== "/settings") {
-        // From /settings, click the sub-nav link to the target page.
-        const subLink = page.locator(`a[href="${path}"]`).first();
-        await subLink.waitFor({ state: "visible", timeout: 10000 });
-        await subLink.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
-        await subLink.click();
-        const pathRegex = new RegExp(
-          path.replace(/[/\\^$*+?.()|[\]{}]/g, "\\$&") + "(\\?|$)"
-        );
-        await page.waitForURL(pathRegex, { timeout: 15000 });
-        await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
-      }
-
-      const landed = page.url();
-      expect(new URL(landed).hostname).toBe(DOCS_HOST);
-      expect(isAuthWall(landed), `Admin bounced to auth wall on ${path}: ${landed}`).toBe(false);
-      expect(landed, `Expected to land on ${path}, got ${landed}`).toContain(path);
+      await expect(page).toHaveURL(new RegExp(`https?://${escapeRegex(DOCS_HOST)}`));
+      expect(isAuthWall(page.url()), `Admin bounced to auth wall on ${path}: ${page.url()}`).toBe(false);
+      await expect(page).toHaveURL(new RegExp(`${escapeRegex(path)}(\\?|$)`));
 
       const title = await waitForSpaTitle(page);
       const gatedForNonAdmin =
@@ -264,4 +263,3 @@ test.describe("Outline — admin (FOSS_USER) reaches every /settings page", () =
     });
   }
 });
-
