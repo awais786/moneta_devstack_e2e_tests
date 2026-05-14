@@ -174,6 +174,18 @@ raw.describe("Twenty — admin-panel reachable for TWENTY_ADMIN_USER", () => {
     try {
       await cognitoLogin(page, { user: TWENTY_ADMIN_USER!, pass: TWENTY_ADMIN_PASS! });
 
+      // Pre-warm: navigate to Twenty home first so the SPA fetches
+      // currentUser/workspace BEFORE we hit a guarded route. Otherwise the
+      // route guard races the auth-hydration query, treats the session as
+      // unknown, and bounces through /welcome → /objects/companies. Real
+      // users don't trip this because human latency lets the SPA settle.
+      await page.goto(BASE, { waitUntil: "commit", timeout: 30_000 });
+      await page
+        .locator('[data-testid="nav-workspace-trigger"], nav, [role="navigation"]')
+        .first()
+        .waitFor({ state: "attached", timeout: 15_000 })
+        .catch(() => {});
+
       const adminApiResponsePromise = page
         .waitForResponse(
           (r) =>
