@@ -12,11 +12,19 @@ import {
 // cookie should have at least 5 minutes left (otherwise the session will
 // expire mid-test). Upper bound is deployment-configurable because some
 // environments intentionally run multi-month SSO TTLs.
+//
+// MAX has a small grace window built in: the server issues the cookie a
+// few hundred ms before our test reads it, and some apps round up to the
+// next second / minute. Without slack, a "92 days exactly" deployment
+// TTL reports as 92.0 days remaining and trips the strict `> 92 days`
+// rejection. 1 hour is comfortably above any rounding noise but still
+// well under any meaningful contract violation.
 const MIN_REMAINING_SECONDS = 5 * 60;
+const MAX_REMAINING_GRACE_SECONDS = 60 * 60;
 const parsedMaxTtl = Number(process.env.FOSS_MAX_SESSION_TTL_SECONDS);
 const MAX_REMAINING_SECONDS = Number.isFinite(parsedMaxTtl) && parsedMaxTtl > 0
   ? parsedMaxTtl
-  : 92 * 24 * 60 * 60;
+  : 92 * 24 * 60 * 60 + MAX_REMAINING_GRACE_SECONDS;
 
 // Cookies that actually carry identity / session bearer state. Other
 // persistent cookies (CSRF tokens, locale, "last signed in" UX hints) are

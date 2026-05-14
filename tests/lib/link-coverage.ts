@@ -253,6 +253,13 @@ export function registerLinkCoverage({
     // L3 + L4 + L5 + L6
     test("every internal link loads without auth wall or error", async ({ page }) => {
       test.setTimeout(SUITE_TIMEOUT);
+      // L1 just navigated to the same start page seconds ago — back-to-back
+      // page loads can trip the deployment's per-user rate limit (Outline
+      // returns 429s on the JS chunks, leaving the page anchorless). A
+      // short cooldown here keeps the rate limiter happy; same instinct as
+      // a human pausing between forceful page reloads.
+      await page.waitForTimeout(2000);
+
       await resolveStartUrl(page, startUrl, waitUntil);
       await dismissTour(page);
       await waitForAnchors(page, { requireLinks });
