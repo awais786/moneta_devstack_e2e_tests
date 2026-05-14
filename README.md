@@ -53,21 +53,18 @@ FOSS_PASS=...
 ```
 
 Optional:
+- `NORMAL_USER` / `NORMAL_PASS` — separate SSO identity ("User B" per
+  sso-rules/admin.md) that has NOT been promoted to admin on any app.
+  Required for the non-admin half of the role-split tests
+  (`outline-admin`, `twenty-admin`); those blocks self-skip otherwise
 - `PLANE_ADMIN_USER` / `PLANE_ADMIN_PASS` — enables the god-mode admin sign-in
-  + wrong-password tests (otherwise those self-skip)
-- `OUTLINE_ADMIN_USER` / `OUTLINE_ADMIN_PASS` — SSO user with `role=admin`
-  in Outline; enables the admin-reaches-every-/settings-page block
-  (otherwise that block self-skips)
-- `PENPOT_ADMIN_USER` / `PENPOT_ADMIN_PASS` — SSO user who is owner/admin
-  on at least one Penpot team; enables the role-mutation round-trip
-  test (promote a teammate via RPC, verify, restore) — self-skips otherwise
-- `SURFSENSE_ADMIN_USER` / `SURFSENSE_ADMIN_PASS` — SSO user who is
-  Owner of at least one SurfSense SearchSpace; enables the
-  RBAC-PUT role-mutation round-trip — self-skips otherwise
-- `TWENTY_ADMIN_USER` / `TWENTY_ADMIN_PASS` — SSO user with
-  `canAccessFullAdminPanel=true` (pre-bootstrapped via the
-  `workspace:bootstrap-sso-admin` CLI command); enables the
-  admin-can-reach-`/settings/admin-panel` test — self-skips otherwise
+  + wrong-password tests (otherwise those self-skip). These are local Plane
+  credentials, NOT SSO — Plane's god-mode bypasses oauth2-proxy entirely.
+
+Outline / Penpot / SurfSense / Twenty admin tests use the worker
+fixture's identity (FOSS_USER). Per sso-rules/admin.md that account
+is pre-promoted to admin on every app, so no per-app admin env vars
+are needed.
 - `BROWSERS=all` — chromium + firefox + webkit (default: chromium only)
 - `FOSS_COGNITO_DOMAIN` / `FOSS_MPASS_DOMAIN` — IDP overrides (don't derive
   from base URL)
@@ -275,18 +272,12 @@ artifact only on failure.
 
 | Name | Required | Purpose |
 |------|----------|---------|
-| `SANDBOX_FOSS_USER` | ✅ | SSO username |
+| `SANDBOX_FOSS_USER` | ✅ | SSO username (User A — pre-promoted admin per sso-rules/admin.md) |
 | `SANDBOX_FOSS_PASS` | ✅ | SSO password |
-| `SANDBOX_PLANE_ADMIN_USER` | optional | enables god-mode admin tests |
+| `SANDBOX_NORMAL_USER` | optional | User B SSO username — enables non-admin role-split tests |
+| `SANDBOX_NORMAL_PASS` | optional | same |
+| `SANDBOX_PLANE_ADMIN_USER` | optional | enables god-mode admin tests (local Plane creds, not SSO) |
 | `SANDBOX_PLANE_ADMIN_PASS` | optional | same |
-| `SANDBOX_OUTLINE_ADMIN_USER` | optional | enables Outline admin-reaches-/settings tests |
-| `SANDBOX_OUTLINE_ADMIN_PASS` | optional | same |
-| `SANDBOX_PENPOT_ADMIN_USER` | optional | enables Penpot role-mutation round-trip test |
-| `SANDBOX_PENPOT_ADMIN_PASS` | optional | same |
-| `SANDBOX_SURFSENSE_ADMIN_USER` | optional | enables SurfSense RBAC role-mutation round-trip test |
-| `SANDBOX_SURFSENSE_ADMIN_PASS` | optional | same |
-| `SANDBOX_TWENTY_ADMIN_USER` | optional | enables Twenty admin-panel-reachable test (must be pre-bootstrapped) |
-| `SANDBOX_TWENTY_ADMIN_PASS` | optional | same |
 | `SLACK_WEBHOOK_URL` | optional | enables Slack failure notifications (with the list of failed tests) |
 
 **Variables tab** (optional):
@@ -305,18 +296,12 @@ artifact only on failure.
 
 | Name | Required | Purpose |
 |------|----------|---------|
-| `PROD_FOSS_USER` | ✅ | SSO username |
+| `PROD_FOSS_USER` | ✅ | SSO username (User A — pre-promoted admin) |
 | `PROD_FOSS_PASS` | ✅ | SSO password |
-| `PROD_PLANE_ADMIN_USER` | optional | god-mode admin user |
+| `PROD_NORMAL_USER` | optional | User B SSO username — enables non-admin role-split tests |
+| `PROD_NORMAL_PASS` | optional | same |
+| `PROD_PLANE_ADMIN_USER` | optional | god-mode admin user (local Plane creds, not SSO) |
 | `PROD_PLANE_ADMIN_PASS` | optional | god-mode admin pass |
-| `PROD_OUTLINE_ADMIN_USER` | optional | Outline admin SSO user |
-| `PROD_OUTLINE_ADMIN_PASS` | optional | Outline admin SSO pass |
-| `PROD_PENPOT_ADMIN_USER` | optional | Penpot admin SSO user |
-| `PROD_PENPOT_ADMIN_PASS` | optional | Penpot admin SSO pass |
-| `PROD_SURFSENSE_ADMIN_USER` | optional | SurfSense Owner SSO user |
-| `PROD_SURFSENSE_ADMIN_PASS` | optional | SurfSense Owner SSO pass |
-| `PROD_TWENTY_ADMIN_USER` | optional | Twenty global admin SSO user (pre-bootstrapped) |
-| `PROD_TWENTY_ADMIN_PASS` | optional | Twenty global admin SSO pass |
 
 **Variables (repo or environment)**:
 

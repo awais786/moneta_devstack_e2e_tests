@@ -1,11 +1,13 @@
-import { test as raw, expect, request, BrowserContext } from "@playwright/test";
+import { test, expect } from "../../fixtures";
+import { request, BrowserContext } from "@playwright/test";
 import { APP_URLS } from "../../constants";
-import { cognitoLogin } from "../../auth-helpers";
 import { extractPenpotTransitField } from "../lib/penpot-transit";
 
 const BASE = APP_URLS.Penpot;
-const ADMIN_USER = process.env.PENPOT_ADMIN_USER;
-const ADMIN_PASS = process.env.PENPOT_ADMIN_PASS;
+
+// FOSS_USER (worker fixture identity) is the admin per sso-rules/admin.md
+// — Owner of their own Penpot Default team. No dedicated PENPOT_ADMIN_USER
+// env var needed; the worker fixture's session has the right cookies.
 
 // Penpot has no /admin URL. Admin is a *state* of a profile with respect
 // to a team: the role lives on the team_profile_rel row, and the
@@ -139,30 +141,21 @@ function transitListOfMaps(body: unknown): unknown[] {
 // Spec
 // ---------------------------------------------------------------------------
 
-raw.describe("Penpot — admin mutates team-member role via RPC", () => {
-  raw.skip(
-    !ADMIN_USER || !ADMIN_PASS,
-    "Set PENPOT_ADMIN_USER and PENPOT_ADMIN_PASS in .env to run this spec"
-  );
-
-  raw("admin can promote a teammate and restore the original role", async ({
-    browser,
+test.describe("Penpot — admin mutates team-member role via RPC", () => {
+  test("admin can promote a teammate and restore the original role", async ({
+    context,
+    page,
   }) => {
-    raw.setTimeout(180_000); // SSO + RPC round-trips
-
-    const ctx = await browser.newContext();
-    const page = await ctx.newPage();
+    test.setTimeout(120_000);
 
     let restore: (() => Promise<void>) | null = null;
 
     try {
-      // (1) SSO login as the Penpot admin user. Landing on a FOSS host
-      //     after Cognito issues the platform _oauth2_proxy cookie; the
-      //     Penpot session cookie is set when we then visit Penpot.
-      await cognitoLogin(page, { user: ADMIN_USER!, pass: ADMIN_PASS! });
+      // (1) Land on Penpot so the app issues its own session cookie on
+      //     top of the SSO cookie already in the worker fixture state.
       await page.goto(BASE, { waitUntil: "networkidle", timeout: 30000 });
 
-      const cookieHeader = await cookieHeaderFor(ctx, BASE);
+      const cookieHeader = await cookieHeaderFor(context, BASE);
 
       // (2) Resolve the admin's own profile-id so we can avoid mutating
       //     ourselves.
@@ -178,9 +171,9 @@ raw.describe("Penpot — admin mutates team-member role via RPC", () => {
         const isAdmin = transitMapGet(t, "~:is-admin");
         return isOwner === true || isAdmin === true;
       });
-      raw.skip(
+      test.skip(
         !adminTeam,
-        `PENPOT_ADMIN_USER is not owner/admin on any team — nothing to mutate. teams=${JSON.stringify(teams).slice(0, 300)}`
+        `FOSS_USER is not owner/admin on any Penpot team — nothing to mutate. teams=${JSON.stringify(teams).slice(0, 300)}`
       );
 
       const teamId = transitMapGet(adminTeam!, "~:id") as string;
@@ -195,7 +188,7 @@ raw.describe("Penpot — admin mutates team-member role via RPC", () => {
         const isOwner = transitMapGet(m, "~:is-owner");
         return id !== selfId && isOwner !== true;
       });
-      raw.skip(
+      test.skip(
         !target,
         `team ${teamId} has no member safe to mutate (need a non-self, non-owner). members=${JSON.stringify(members).slice(0, 300)}`
       );
@@ -269,7 +262,6 @@ raw.describe("Penpot — admin mutates team-member role via RPC", () => {
       }
     } finally {
       if (restore) await restore();
-      await ctx.close();
     }
   });
 });

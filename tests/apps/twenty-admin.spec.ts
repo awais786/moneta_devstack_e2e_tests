@@ -7,8 +7,13 @@ const BASE = APP_URLS.Twenty;
 const TWENTY_HOST = new URL(BASE).hostname;
 const ADMIN_URL = `${BASE}/settings/admin-panel`;
 
-const ADMIN_USER = process.env.TWENTY_ADMIN_USER;
-const ADMIN_PASS = process.env.TWENTY_ADMIN_PASS;
+// Identity model (sso-rules/admin.md): FOSS_USER (User A) is the
+// pre-bootstrapped admin with canAccessFullAdminPanel=true on Twenty;
+// NORMAL_USER (User B) is the non-admin baseline. Worker fixture uses
+// FOSS_USER, so admin-side tests use `test`; non-admin uses an explicit
+// cognitoLogin into a fresh context with NORMAL_USER.
+const NORMAL_USER = process.env.NORMAL_USER;
+const NORMAL_PASS = process.env.NORMAL_PASS;
 
 // Twenty is the only app in the bundle with a real `/admin` URL distinct
 // from workspace-level admin. Two separate concepts live behind the same
@@ -94,29 +99,43 @@ async function readVisibleText(page: import("@playwright/test").Page): Promise<s
   return await page.evaluate(() => document.body?.innerText ?? "");
 }
 
-test.describe("Twenty — admin-panel gated for non-admin SSO user", () => {
-  test("FOSS_USER lands on Twenty but admin-panel content is not rendered", async ({
-    page,
+raw.describe("Twenty — admin-panel gated for non-admin SSO user", () => {
+  raw.skip(
+    !NORMAL_USER || !NORMAL_PASS,
+    "Set NORMAL_USER and NORMAL_PASS in .env to run the non-admin gate"
+  );
+
+  raw("non-admin lands on Twenty but admin-panel content is not rendered", async ({
+    browser,
   }) => {
-    test.setTimeout(60_000);
-    await page.goto(ADMIN_URL, { waitUntil: "commit", timeout: 30_000 });
-    await page.waitForTimeout(SPA_RENDER_WAIT_MS);
+    raw.setTimeout(120_000);
 
-    const landed = page.url();
-    expect(new URL(landed).hostname).toBe(TWENTY_HOST);
-    expect(
-      isAuthWall(landed),
-      `Non-admin must not bounce to auth wall on /settings/admin-panel: ${landed}`
-    ).toBe(false);
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    try {
+      await cognitoLogin(page, { user: NORMAL_USER!, pass: NORMAL_PASS! });
 
-    const visible = await readVisibleText(page);
-    const matched = ADMIN_UI_MARKERS.filter((rx) => rx.test(visible));
-    expect(
-      matched,
-      `AdminPanelGuard appears bypassed for FOSS_USER — admin UI markers visible: ${matched
-        .map((r) => r.source)
-        .join(", ")}\nFirst 400 chars of visible text: ${visible.slice(0, 400)}`
-    ).toEqual([]);
+      await page.goto(ADMIN_URL, { waitUntil: "commit", timeout: 30_000 });
+      await page.waitForTimeout(SPA_RENDER_WAIT_MS);
+
+      const landed = page.url();
+      expect(new URL(landed).hostname).toBe(TWENTY_HOST);
+      expect(
+        isAuthWall(landed),
+        `Non-admin must not bounce to auth wall on /settings/admin-panel: ${landed}`
+      ).toBe(false);
+
+      const visible = await readVisibleText(page);
+      const matched = ADMIN_UI_MARKERS.filter((rx) => rx.test(visible));
+      expect(
+        matched,
+        `AdminPanelGuard appears bypassed for NORMAL_USER — admin UI markers visible: ${matched
+          .map((r) => r.source)
+          .join(", ")}\nFirst 400 chars of visible text: ${visible.slice(0, 400)}`
+      ).toEqual([]);
+    } finally {
+      await ctx.close();
+    }
   });
 });
 
@@ -126,42 +145,27 @@ test.describe("Twenty — admin-panel gated for non-admin SSO user", () => {
 // negative-side test, which is still a strong signal).
 // ---------------------------------------------------------------------------
 
-raw.describe("Twenty — admin-panel reachable for canAccessFullAdminPanel=true", () => {
-  raw.skip(
-    !ADMIN_USER || !ADMIN_PASS,
-    "Set TWENTY_ADMIN_USER and TWENTY_ADMIN_PASS in .env to run this block"
-  );
+test.describe("Twenty — admin-panel reachable for FOSS_USER (canAccessFullAdminPanel=true)", () => {
+  test("admin reaches /settings/admin-panel with admin UI visible", async ({ page }) => {
+    test.setTimeout(60_000);
 
-  raw("admin user reaches /settings/admin-panel with admin UI visible", async ({
-    browser,
-  }) => {
-    raw.setTimeout(180_000); // SSO login + Twenty SPA hydration
+    await page.goto(ADMIN_URL, { waitUntil: "commit", timeout: 30_000 });
+    await page.waitForTimeout(SPA_RENDER_WAIT_MS);
 
-    const ctx = await browser.newContext();
-    const page = await ctx.newPage();
-    try {
-      await cognitoLogin(page, { user: ADMIN_USER!, pass: ADMIN_PASS! });
+    const landed = page.url();
+    expect(new URL(landed).hostname).toBe(TWENTY_HOST);
+    expect(
+      isAuthWall(landed),
+      `Admin bounced to auth wall on /settings/admin-panel: ${landed}`
+    ).toBe(false);
 
-      await page.goto(ADMIN_URL, { waitUntil: "commit", timeout: 30_000 });
-      await page.waitForTimeout(SPA_RENDER_WAIT_MS);
-
-      const landed = page.url();
-      expect(new URL(landed).hostname).toBe(TWENTY_HOST);
-      expect(
-        isAuthWall(landed),
-        `Admin user bounced to auth wall on /settings/admin-panel: ${landed}`
-      ).toBe(false);
-
-      const visible = await readVisibleText(page);
-      const matched = ADMIN_UI_MARKERS.filter((rx) => rx.test(visible));
-      expect(
-        matched.length,
-        `Admin user must see at least one admin-panel UI marker. None of these matched: ${ADMIN_UI_MARKERS.map(
-          (r) => r.source
-        ).join(", ")}\nFirst 400 chars of visible text: ${visible.slice(0, 400)}`
-      ).toBeGreaterThan(0);
-    } finally {
-      await ctx.close();
-    }
+    const visible = await readVisibleText(page);
+    const matched = ADMIN_UI_MARKERS.filter((rx) => rx.test(visible));
+    expect(
+      matched.length,
+      `Admin must see at least one admin-panel UI marker. None of these matched: ${ADMIN_UI_MARKERS.map(
+        (r) => r.source
+      ).join(", ")}\nFirst 400 chars of visible text: ${visible.slice(0, 400)}`
+    ).toBeGreaterThan(0);
   });
 });

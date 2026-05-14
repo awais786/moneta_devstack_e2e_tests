@@ -1,10 +1,12 @@
-import { test as raw, expect, request, BrowserContext } from "@playwright/test";
+import { test, expect } from "../../fixtures";
+import { request, BrowserContext } from "@playwright/test";
 import { APP_URLS } from "../../constants";
-import { cognitoLogin } from "../../auth-helpers";
 
 const BASE = APP_URLS.SurfSense;
-const ADMIN_USER = process.env.SURFSENSE_ADMIN_USER;
-const ADMIN_PASS = process.env.SURFSENSE_ADMIN_PASS;
+
+// FOSS_USER (worker fixture identity) is the admin per sso-rules/admin.md
+// — Owner of their own SearchSpace. The worker fixture's SSO session
+// carries the right cookies to drive the RBAC API.
 
 // SurfSense has no global admin — `is_superuser=False` is hard-coded for
 // proxy-auth users (surfsense_backend/app/middleware/proxy_auth.py:131).
@@ -91,25 +93,21 @@ function pick<T = unknown>(obj: unknown, ...keys: string[]): T | undefined {
 // Spec
 // ---------------------------------------------------------------------------
 
-raw.describe("SurfSense — Owner mutates teammate role via RBAC API", () => {
-  raw.skip(
-    !ADMIN_USER || !ADMIN_PASS,
-    "Set SURFSENSE_ADMIN_USER and SURFSENSE_ADMIN_PASS in .env to run this spec"
-  );
+test.describe("SurfSense — Owner mutates teammate role via RBAC API", () => {
+  test("Owner can promote a teammate and restore the original role", async ({
+    context,
+    page,
+  }) => {
+    test.setTimeout(120_000);
 
-  raw("Owner can promote a teammate and restore the original role", async ({ browser }) => {
-    raw.setTimeout(180_000);
-
-    const ctx = await browser.newContext();
-    const page = await ctx.newPage();
     let restore: (() => Promise<void>) | null = null;
 
     try {
-      // (1) SSO login as the SurfSense Owner.
-      await cognitoLogin(page, { user: ADMIN_USER!, pass: ADMIN_PASS! });
+      // (1) Land on SurfSense so the app issues its own session cookie
+      //     on top of the SSO cookie already in the worker fixture state.
       await page.goto(BASE, { waitUntil: "networkidle", timeout: 30000 });
 
-      const cookieHeader = await cookieHeaderFor(ctx, BASE);
+      const cookieHeader = await cookieHeaderFor(context, BASE);
 
       // (2) Resolve the admin's own user-id to avoid mutating ourselves.
       const me = await apiGet<{ id?: string | number }>(cookieHeader, "/users/me");
@@ -117,16 +115,16 @@ raw.describe("SurfSense — Owner mutates teammate role via RBAC API", () => {
       const selfId = pick<string | number>(me.body, "id", "user_id", "userId");
       expect(selfId, "SurfSense /users/me must expose an id").toBeTruthy();
 
-      // (3) Discover SearchSpaces. SurfSense's standard path is
-      //     /api/searchspaces; if a fork variant differs we'll see the
-      //     status code in the failure message and adjust.
-      const spaces = await apiGet<unknown[]>(cookieHeader, "/api/searchspaces");
+      // (3) Discover SearchSpaces. Endpoint name is fork-specific —
+      //     probed against the foss sandbox: /api/v1/searchspaces is
+      //     the live path (returns array of {id, name, user_id, ...}).
+      const spaces = await apiGet<unknown[]>(cookieHeader, "/api/v1/searchspaces");
       expect(
         spaces.status,
-        `GET /api/searchspaces returned ${spaces.status}: ${JSON.stringify(spaces.body).slice(0, 200)}`
+        `GET /api/v1/searchspaces returned ${spaces.status}: ${JSON.stringify(spaces.body).slice(0, 200)}`
       ).toBeLessThan(400);
       const spaceList = Array.isArray(spaces.body) ? spaces.body : [];
-      raw.skip(
+      test.skip(
         spaceList.length === 0,
         `SurfSense Owner has no SearchSpaces visible. body=${JSON.stringify(spaces.body).slice(0, 300)}`
       );
@@ -196,7 +194,7 @@ raw.describe("SurfSense — Owner mutates teammate role via RBAC API", () => {
         break;
       }
 
-      raw.skip(
+      test.skip(
         chosenSpaceId === undefined,
         `No SearchSpace had a non-self non-Owner member with a flippable role. Owner role found: ${ownerRoleName ?? "(none)"}`
       );
@@ -249,7 +247,6 @@ raw.describe("SurfSense — Owner mutates teammate role via RBAC API", () => {
       ).toBe(newRoleId);
     } finally {
       if (restore) await restore();
-      await ctx.close();
     }
   });
 });
