@@ -4,32 +4,33 @@ import { APP_URLS } from "../../constants";
 
 const BASE = APP_URLS.SurfSense;
 
-// FOSS_USER (worker fixture identity) is the admin per sso-rules/admin.md
-// — Owner of their own SearchSpace. The worker fixture's SSO session
-// carries the right cookies to drive the RBAC API.
-
 // SurfSense has no global admin — `is_superuser=False` is hard-coded for
 // proxy-auth users (surfsense_backend/app/middleware/proxy_auth.py:131).
-// Admin is per-SearchSpace via the system roles Owner / Editor / Viewer
-// (db.py:352 Permission enum; MEMBERS_MANAGE_ROLES at db.py:417), gated
-// server-side by rbac_routes.py:527-528 on the PUT
-// /searchspaces/<id>/members/<membership-id> endpoint.
+// Admin is per-SearchSpace via three system roles: Owner / Editor /
+// Viewer. Member-management is gated on the actor's role permissions
+// including `members:manage_roles` (Owner-only by default).
 //
-// Mirrors the Penpot admin spec one-to-one — different terms, same
-// contract: an Owner can mutate a teammate's role through the RBAC
-// API and the change is observable in the membership list, and the
-// mutation is reversible (restored in finally).
-
-// ---------------------------------------------------------------------------
-// JSON helpers (SurfSense's RBAC API is plain JSON, not Transit).
-// ---------------------------------------------------------------------------
+// FOSS_USER (worker fixture, == User A) is Owner of SearchSpace #7;
+// User B was DB-INSERTed as Editor on the same space. The mutation
+// test flips User B's role and restores it in a finally block.
+//
+// Endpoint shape (probed against the foss sandbox):
+//   • GET  /api/v1/searchspaces                — array of {id, name, user_id, is_owner, …}
+//   • GET  /api/v1/searchspaces/<id>/members   — array of memberships, each {id, user_id, role_id, is_owner, role: {…}, user_email}
+//   • GET  /api/v1/searchspaces/<id>/roles     — array of role rows for that space
+//   • PUT  /api/v1/searchspaces/<id>/members/<membership-id>  — body {role_id}
+// The sso-rules skill's `/api/rbac/...` path is from upstream; this
+// fork mounts everything under `/api/v1/`.
 
 async function cookieHeaderFor(ctx: BrowserContext, baseUrl: string): Promise<string> {
   const cookies = await ctx.cookies(baseUrl);
   return cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 }
 
-async function apiGet<T = unknown>(cookieHeader: string, path: string): Promise<{ status: number; body: T | string }> {
+async function apiGet<T = unknown>(
+  cookieHeader: string,
+  path: string
+): Promise<{ status: number; body: T | string }> {
   const ctx = await request.newContext({
     extraHTTPHeaders: { cookie: cookieHeader, accept: "application/json" },
   });
@@ -79,19 +80,17 @@ async function apiPut(
   }
 }
 
-// SurfSense responses generally use snake_case. To avoid being fragile
-// to minor name drift between fork versions, accept either camelCase or
-// snake_case for the IDs we care about.
-function pick<T = unknown>(obj: unknown, ...keys: string[]): T | undefined {
-  if (typeof obj !== "object" || obj === null) return undefined;
-  const o = obj as Record<string, unknown>;
-  for (const k of keys) if (o[k] !== undefined) return o[k] as T;
-  return undefined;
-}
-
-// ---------------------------------------------------------------------------
-// Spec
-// ---------------------------------------------------------------------------
+type SurfSpace = { id: number; name: string; user_id: string; is_owner: boolean };
+type SurfRole = { id: number; name: string; search_space_id: number };
+type SurfMember = {
+  id: number; // membership id
+  user_id: string;
+  search_space_id: number;
+  role_id: number;
+  is_owner: boolean;
+  role: { id: number; name: string };
+  user_email?: string;
+};
 
 test.describe("SurfSense — Owner mutates teammate role via RBAC API", () => {
   test("Owner can promote a teammate and restore the original role", async ({
@@ -103,22 +102,21 @@ test.describe("SurfSense — Owner mutates teammate role via RBAC API", () => {
     let restore: (() => Promise<void>) | null = null;
 
     try {
-      // (1) Land on SurfSense so the app issues its own session cookie
-      //     on top of the SSO cookie already in the worker fixture state.
-      await page.goto(BASE, { waitUntil: "networkidle", timeout: 30000 });
+      // (1) Land on SurfSense so it issues its own session cookie.
+      //     domcontentloaded — the SurfSense SPA keeps long-poll /
+      //     subscription connections open and never hits networkidle.
+      await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: 30000 });
 
       const cookieHeader = await cookieHeaderFor(context, BASE);
 
-      // (2) Resolve the admin's own user-id to avoid mutating ourselves.
-      const me = await apiGet<{ id?: string | number }>(cookieHeader, "/users/me");
+      // (2) Resolve the admin's own user-id.
+      const me = await apiGet<{ id?: string }>(cookieHeader, "/users/me");
       expect(me.status, `GET /users/me returned ${me.status}: ${JSON.stringify(me.body).slice(0, 200)}`).toBeLessThan(400);
-      const selfId = pick<string | number>(me.body, "id", "user_id", "userId");
+      const selfId = typeof me.body === "object" && me.body !== null ? (me.body as { id?: string }).id : undefined;
       expect(selfId, "SurfSense /users/me must expose an id").toBeTruthy();
 
-      // (3) Discover SearchSpaces. Endpoint name is fork-specific —
-      //     probed against the foss sandbox: /api/v1/searchspaces is
-      //     the live path (returns array of {id, name, user_id, ...}).
-      const spaces = await apiGet<unknown[]>(cookieHeader, "/api/v1/searchspaces");
+      // (3) Discover SearchSpaces.
+      const spaces = await apiGet<SurfSpace[]>(cookieHeader, "/api/v1/searchspaces");
       expect(
         spaces.status,
         `GET /api/v1/searchspaces returned ${spaces.status}: ${JSON.stringify(spaces.body).slice(0, 200)}`
@@ -129,81 +127,62 @@ test.describe("SurfSense — Owner mutates teammate role via RBAC API", () => {
         `SurfSense Owner has no SearchSpaces visible. body=${JSON.stringify(spaces.body).slice(0, 300)}`
       );
 
-      // (4) Find a SearchSpace + iterate members + roles until we have a
-      //     safe target (non-self, non-Owner) and a role to flip to.
-      let chosenSpaceId: string | number | undefined;
-      let chosenMembershipId: string | number | undefined;
-      let originalRoleId: string | number | undefined;
-      let newRoleId: string | number | undefined;
-      let ownerRoleName: string | undefined;
+      // (4) Find a space + safe target (non-self, non-Owner) + a role to flip to.
+      let chosenSpaceId: number | undefined;
+      let chosenMembershipId: number | undefined;
+      let originalRoleId: number | undefined;
+      let newRoleId: number | undefined;
 
       for (const space of spaceList) {
-        const spaceId = pick<string | number>(space, "id", "search_space_id", "searchSpaceId");
-        if (!spaceId) continue;
+        const spaceId = space.id;
 
-        const membersResp = await apiGet<unknown[]>(
+        const membersResp = await apiGet<SurfMember[]>(
           cookieHeader,
-          `/api/rbac/searchspaces/${spaceId}/members`
+          `/api/v1/searchspaces/${spaceId}/members`
         );
         if (membersResp.status >= 400) continue;
         const members = Array.isArray(membersResp.body) ? membersResp.body : [];
 
-        const rolesResp = await apiGet<unknown[]>(
+        const rolesResp = await apiGet<SurfRole[]>(
           cookieHeader,
-          `/api/rbac/searchspaces/${spaceId}/roles`
+          `/api/v1/searchspaces/${spaceId}/roles`
         );
         if (rolesResp.status >= 400) continue;
         const roles = Array.isArray(rolesResp.body) ? rolesResp.body : [];
 
-        // Owner role is the one we don't want to assign and don't want to
-        // demote *from*. Identify it by name === "Owner" (system role).
-        const ownerRole = roles.find((r) => {
-          const name = pick<string>(r, "name", "role_name");
-          return typeof name === "string" && name.toLowerCase() === "owner";
-        });
-        ownerRoleName = ownerRole ? pick<string>(ownerRole, "name", "role_name") : undefined;
-        const ownerRoleId = ownerRole
-          ? pick<string | number>(ownerRole, "id", "role_id", "roleId")
-          : undefined;
+        // Identify Owner role to exclude as a target *and* as a flip target.
+        const ownerRole = roles.find(
+          (r) => typeof r.name === "string" && r.name.toLowerCase() === "owner"
+        );
+        const ownerRoleId = ownerRole?.id;
 
-        // Pick a member who is NOT the admin themselves AND NOT an Owner.
-        const target = members.find((m) => {
-          const userId = pick<string | number>(m, "user_id", "userId");
-          const isOwner = pick<boolean>(m, "is_owner", "isOwner") === true;
-          const memberRoleId = pick<string | number>(m, "role_id", "roleId");
-          const isOwnerByRole = ownerRoleId !== undefined && memberRoleId === ownerRoleId;
-          return userId !== selfId && !isOwner && !isOwnerByRole;
-        });
+        // Safe target: not self, not Owner.
+        const target = members.find(
+          (m) => m.user_id !== selfId && m.is_owner !== true && m.role_id !== ownerRoleId
+        );
         if (!target) continue;
 
-        const memId = pick<string | number>(target, "membership_id", "id", "membershipId");
-        const curRoleId = pick<string | number>(target, "role_id", "roleId");
-        if (memId === undefined || curRoleId === undefined) continue;
-
         // Pick *any other* non-Owner role to flip to.
-        const flipTo = roles.find((r) => {
-          const rid = pick<string | number>(r, "id", "role_id", "roleId");
-          return rid !== undefined && rid !== curRoleId && rid !== ownerRoleId;
-        });
+        const flipTo = roles.find((r) => r.id !== target.role_id && r.id !== ownerRoleId);
         if (!flipTo) continue;
 
         chosenSpaceId = spaceId;
-        chosenMembershipId = memId;
-        originalRoleId = curRoleId;
-        newRoleId = pick<string | number>(flipTo, "id", "role_id", "roleId");
+        chosenMembershipId = target.id;
+        originalRoleId = target.role_id;
+        newRoleId = flipTo.id;
         break;
       }
 
       test.skip(
         chosenSpaceId === undefined,
-        `No SearchSpace had a non-self non-Owner member with a flippable role. Owner role found: ${ownerRoleName ?? "(none)"}`
+        "No SearchSpace had a non-self non-Owner member with a flippable role."
       );
 
       // (5) Stage restore before mutating.
       restore = async () => {
         const res = await apiPut(
           cookieHeader,
-          `/api/rbac/searchspaces/${chosenSpaceId}/members/${chosenMembershipId}`,
+          `/api/v1/searchspaces/${chosenSpaceId}/members/${chosenMembershipId}`,
           { role_id: originalRoleId }
         );
         if (res.status >= 400) {
@@ -218,7 +197,7 @@ test.describe("SurfSense — Owner mutates teammate role via RBAC API", () => {
       // (6) Mutate.
       const mutate = await apiPut(
         cookieHeader,
-        `/api/rbac/searchspaces/${chosenSpaceId}/members/${chosenMembershipId}`,
+        `/api/v1/searchspaces/${chosenSpaceId}/members/${chosenMembershipId}`,
         { role_id: newRoleId }
       );
       expect(
@@ -227,23 +206,21 @@ test.describe("SurfSense — Owner mutates teammate role via RBAC API", () => {
       ).toBeLessThan(400);
 
       // (7) Verify via a fresh members fetch.
-      const afterResp = await apiGet<unknown[]>(
+      const afterResp = await apiGet<SurfMember[]>(
         cookieHeader,
-        `/api/rbac/searchspaces/${chosenSpaceId}/members`
+        `/api/v1/searchspaces/${chosenSpaceId}/members`
       );
       expect(afterResp.status).toBeLessThan(400);
       const afterMembers = Array.isArray(afterResp.body) ? afterResp.body : [];
-      const afterTarget = afterMembers.find(
-        (m) => pick<string | number>(m, "membership_id", "id", "membershipId") === chosenMembershipId
-      );
+      const afterTarget = afterMembers.find((m) => m.id === chosenMembershipId);
       expect(
         afterTarget,
         `membership ${chosenMembershipId} missing from members list after mutation`
       ).toBeTruthy();
-      const afterRoleId = pick<string | number>(afterTarget!, "role_id", "roleId");
       expect(
-        afterRoleId,
-        `expected role_id=${newRoleId} after mutation, got ${afterRoleId} (member=${JSON.stringify(afterTarget).slice(0, 300)})`
+        afterTarget!.role_id,
+        `expected role_id=${newRoleId} after mutation, got ${afterTarget!.role_id} ` +
+          `(member=${JSON.stringify(afterTarget).slice(0, 300)})`
       ).toBe(newRoleId);
     } finally {
       if (restore) await restore();
