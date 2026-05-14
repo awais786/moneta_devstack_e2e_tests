@@ -130,7 +130,7 @@ checking `User.canAccessFullAdminPanel === true`.
 |---|---|
 | `cold visit to /settings/admin-panel bounces through SSO` | No SSO cookie → bounces to ForwardAuth / IDP. |
 | `non-admin lands on Twenty but admin-panel content is not rendered` (skips without `NORMAL_USER`) | NORMAL_USER lands on the Twenty host but sees zero admin UI markers (Health Status, Feature Flags, Config Variables, AI Models, Admin Panel). |
-| `admin reaches /settings/admin-panel with admin UI visible` | FOSS_USER (admin) sees at least one admin marker — the page actually renders the admin panel. |
+| `admin reaches /settings/admin-panel with admin UI visible` | Uses `FOSS_USER` by default (or `TWENTY_ADMIN_USER` override) and expects at least one admin marker — the page actually renders the admin panel. |
 
 ---
 
@@ -206,4 +206,5 @@ self-skipping blocks fire automatically.
 | `pm-godmode.spec.ts` admin-sign-in + wrong-password + cookie-isolation | `PLANE_ADMIN_USER` or `PLANE_ADMIN_PASS` unset |
 | `outline-admin.spec.ts` non-admin role-split (14 tests) | `NORMAL_USER` or `NORMAL_PASS` unset |
 | `twenty-admin.spec.ts` non-admin gate (1 test) | `NORMAL_USER` or `NORMAL_PASS` unset |
+| `twenty-admin.spec.ts` admin positive test (1 test) | `FOSS_USER`/`FOSS_PASS` unset (or override pair `TWENTY_ADMIN_USER`/`TWENTY_ADMIN_PASS` incomplete) |
 | Any individual cross-browser test | Default Chromium-only run — `BROWSERS=all` enables Firefox + WebKit |

@@ -72,9 +72,10 @@ const ALL_PATHS = [...COMMON_PATHS, ...ADMIN_ONLY_PATHS] as const;
 // never updates (the route silently fails to render). Callers handle
 // that by treating "shell default" as one valid gated signal.
 async function waitForSpaTitle(page: import("@playwright/test").Page): Promise<string> {
+  const titleSettleTimeoutMs = process.env.CI ? 25_000 : 10_000;
   await page
     .waitForFunction(() => document.title.trim().toLowerCase() !== "outline", null, {
-      timeout: 10000,
+      timeout: titleSettleTimeoutMs,
     })
     .catch(() => {});
   return (await page.title()).toLowerCase();

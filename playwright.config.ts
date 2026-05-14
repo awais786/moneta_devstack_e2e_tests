@@ -4,6 +4,9 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 const BASE_URL = process.env.FOSS_BASE_URL?.trim() || "https://foss.arbisoft.com";
+const defaultSlowMo = process.env.CI ? "0" : "2000";
+const parsedSlowMo = Number(process.env.PW_SLOW_MO_MS ?? defaultSlowMo);
+const SLOW_MO_MS = Number.isFinite(parsedSlowMo) && parsedSlowMo >= 0 ? parsedSlowMo : 2000;
 
 // Browser selection
 //   default          → chromium only (fast local + CI smoke)
@@ -50,6 +53,8 @@ export default defineConfig({
 
   use: {
     baseURL: BASE_URL,
+    // Visual pacing for local debugging; override with PW_SLOW_MO_MS=0 when needed.
+    launchOptions: { slowMo: SLOW_MO_MS },
     screenshot: "only-on-failure",
     video: "retain-on-failure",
     trace: "retain-on-failure",

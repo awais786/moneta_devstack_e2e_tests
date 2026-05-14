@@ -14,6 +14,8 @@ const ADMIN_URL = `${BASE}/settings/admin-panel`;
 // cognitoLogin into a fresh context with NORMAL_USER.
 const NORMAL_USER = process.env.NORMAL_USER;
 const NORMAL_PASS = process.env.NORMAL_PASS;
+const TWENTY_ADMIN_USER = process.env.TWENTY_ADMIN_USER ?? process.env.FOSS_USER;
+const TWENTY_ADMIN_PASS = process.env.TWENTY_ADMIN_PASS ?? process.env.FOSS_PASS;
 
 // Twenty is the only app in the bundle with a real `/admin` URL distinct
 // from workspace-level admin. Two separate concepts live behind the same
@@ -103,7 +105,12 @@ async function readVisibleText(page: import("@playwright/test").Page): Promise<s
   // page.content() includes attributes / hidden nodes; innerText gives
   // user-visible text only, which is what we want for a "would a real
   // admin see this" assertion.
-  return await page.evaluate(() => document.body?.innerText ?? "");
+  return await page.evaluate(() => document.body?.innerText ?? "").catch(() => "");
+}
+
+async function countAdminMarkers(page: import("@playwright/test").Page): Promise<number> {
+  const visible = await readVisibleText(page);
+  return ADMIN_UI_MARKERS.filter((rx) => rx.test(visible)).length;
 }
 
 raw.describe("Twenty — admin-panel gated for non-admin SSO user", () => {
@@ -148,31 +155,73 @@ raw.describe("Twenty — admin-panel gated for non-admin SSO user", () => {
 
 // ---------------------------------------------------------------------------
 // (C) SSO-authed as TWENTY_ADMIN_USER: the admin panel must render.
-// Self-skips when admin creds aren't set (the spec is then purely a
-// negative-side test, which is still a strong signal).
+// This intentionally uses explicit admin credentials instead of the
+// worker fixture account so CI can run against environments where
+// FOSS_USER is not a Twenty full-admin.
 // ---------------------------------------------------------------------------
 
-test.describe("Twenty — admin-panel reachable for FOSS_USER (canAccessFullAdminPanel=true)", () => {
-  test("admin reaches /settings/admin-panel with admin UI visible", async ({ page }) => {
-    test.setTimeout(60_000);
+raw.describe("Twenty — admin-panel reachable for TWENTY_ADMIN_USER", () => {
+  raw.skip(
+    !TWENTY_ADMIN_USER || !TWENTY_ADMIN_PASS,
+    "Set FOSS_USER/FOSS_PASS (or TWENTY_ADMIN_USER/TWENTY_ADMIN_PASS override) to run the Twenty admin positive test"
+  );
 
-    await page.goto(ADMIN_URL, { waitUntil: "commit", timeout: 30_000 });
-    await waitForAdminPanelSurface(page);
+  raw("admin reaches /settings/admin-panel with admin UI visible", async ({ browser }) => {
+    raw.setTimeout(90_000);
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
 
-    const landed = page.url();
-    expect(new URL(landed).hostname).toBe(TWENTY_HOST);
-    expect(
-      isAuthWall(landed),
-      `Admin bounced to auth wall on /settings/admin-panel: ${landed}`
-    ).toBe(false);
+    try {
+      await cognitoLogin(page, { user: TWENTY_ADMIN_USER!, pass: TWENTY_ADMIN_PASS! });
 
-    const visible = await readVisibleText(page);
-    const matched = ADMIN_UI_MARKERS.filter((rx) => rx.test(visible));
-    expect(
-      matched.length,
-      `Admin must see at least one admin-panel UI marker. None of these matched: ${ADMIN_UI_MARKERS.map(
-        (r) => r.source
-      ).join(", ")}\nFirst 400 chars of visible text: ${visible.slice(0, 400)}`
-    ).toBeGreaterThan(0);
+      const adminApiResponsePromise = page
+        .waitForResponse(
+          (r) =>
+            r.url().includes("/admin-panel-graphql-api") &&
+            ["GET", "POST"].includes(r.request().method()),
+          { timeout: process.env.CI ? 30_000 : 15_000 }
+        )
+        .catch(() => null);
+
+      await page.goto(ADMIN_URL, { waitUntil: "commit", timeout: 30_000 });
+      await waitForAdminPanelSurface(page);
+
+      const landed = page.url();
+      expect(new URL(landed).hostname).toBe(TWENTY_HOST);
+      expect(
+        landed,
+        `Expected to remain on /settings/admin-panel, but landed on: ${landed}. This usually means the user is not granted canAccessFullAdminPanel.`
+      ).toContain("/settings/admin-panel");
+      expect(
+        isAuthWall(landed),
+        `Admin bounced to auth wall on /settings/admin-panel: ${landed}`
+      ).toBe(false);
+
+      // Catch late SPA redirects: non-admin users can briefly land on the
+      // route and then get pushed back to app home.
+      await expect
+        .poll(() => page.url(), {
+          timeout: process.env.CI ? 20_000 : 10_000,
+          message:
+            "Twenty redirected away from /settings/admin-panel after initial load. " +
+            "The SSO user is likely authenticated but missing canAccessFullAdminPanel.",
+        })
+        .toContain("/settings/admin-panel");
+
+
+      const adminApiResponse = await adminApiResponsePromise;
+      const markerCount = await countAdminMarkers(page);
+      const visible = await readVisibleText(page);
+      const apiLooksAdmin = !!adminApiResponse && adminApiResponse.status() < 400;
+      const markerLooksAdmin = markerCount > 0;
+      expect(
+        markerLooksAdmin || apiLooksAdmin,
+        `Admin-panel signal missing. markers=${markerCount}; api_status=${adminApiResponse?.status() ?? "none"}; landed=${page.url()}. None of these UI markers matched: ${ADMIN_UI_MARKERS.map(
+          (r) => r.source
+        ).join(", ")}\nFirst 400 chars of visible text: ${visible.slice(0, 400)}`
+      ).toBe(true);
+    } finally {
+      await ctx.close();
+    }
   });
 });

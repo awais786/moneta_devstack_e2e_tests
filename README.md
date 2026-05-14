@@ -59,6 +59,10 @@ Optional:
 - `PLANE_ADMIN_USER` / `PLANE_ADMIN_PASS` — enables the god-mode admin sign-in
   + wrong-password tests (otherwise those self-skip). These are local Plane
   credentials, NOT SSO — Plane's god-mode bypasses oauth2-proxy entirely.
+- `TWENTY_ADMIN_USER` / `TWENTY_ADMIN_PASS` — optional override for Twenty's
+  positive admin-panel test. By default that test uses `FOSS_USER` /
+  `FOSS_PASS`; set this pair only when Twenty admin rights live on a different
+  identity in a given deployment.
 
 Outline / Penpot / SurfSense / Twenty admin tests use the worker
 fixture's identity (FOSS_USER). Per sso-rules/admin.md that account
