@@ -1,4 +1,4 @@
-import { Page, Locator } from "@playwright/test";
+import { Page, Locator, expect } from "@playwright/test";
 import { MAIN_URL, IDP_REGEX, FOSS_HOST_REGEX } from "./constants";
 
 async function firstVisibleLocator(page: Page, selectors: string[]): Promise<Locator | null> {
@@ -49,17 +49,18 @@ export async function cognitoLogin(
       'input[placeholder*="mPass" i]',
       'input[type="email"]',
     ])) ?? page.locator('input[type="text"]').first();
-  await userInput.waitFor({ state: "visible", timeout: 30000 });
+  await expect(userInput).toBeVisible({ timeout: 30000 });
   await userInput.click();
   await userInput.pressSequentially(user, { delay: 30 });
 
   const passInput = page.locator('input[type="password"], input[name="password"]').first();
-  await passInput.waitFor({ state: "visible", timeout: 10000 });
+  await expect(passInput).toBeVisible({ timeout: 10000 });
   await passInput.click();
   await passInput.pressSequentially(pass, { delay: 30 });
 
   await page.getByRole("button", { name: /^(login|sign in|submit)$/i }).first().click();
 
+  // waitForURL is the navigation gate — no need to also wait for
+  // networkidle (apps like Twenty keep websockets open and never reach it).
   await page.waitForURL(FOSS_HOST_REGEX, { timeout: 45000 });
-  await page.waitForLoadState("networkidle");
 }
