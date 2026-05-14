@@ -41,6 +41,8 @@ jobs:
       PENPOT_ADMIN_PASS:    ${{ secrets.SANDBOX_PENPOT_ADMIN_PASS }}
       SURFSENSE_ADMIN_USER: ${{ secrets.SANDBOX_SURFSENSE_ADMIN_USER }}
       SURFSENSE_ADMIN_PASS: ${{ secrets.SANDBOX_SURFSENSE_ADMIN_PASS }}
+      TWENTY_ADMIN_USER:    ${{ secrets.SANDBOX_TWENTY_ADMIN_USER }}
+      TWENTY_ADMIN_PASS:    ${{ secrets.SANDBOX_TWENTY_ADMIN_PASS }}
 
     steps:
       - uses: actions/checkout@v4

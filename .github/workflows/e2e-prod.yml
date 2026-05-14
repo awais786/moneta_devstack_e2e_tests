@@ -45,6 +45,8 @@ jobs:
       PENPOT_ADMIN_PASS:    ${{ secrets.PROD_PENPOT_ADMIN_PASS }}
       SURFSENSE_ADMIN_USER: ${{ secrets.PROD_SURFSENSE_ADMIN_USER }}
       SURFSENSE_ADMIN_PASS: ${{ secrets.PROD_SURFSENSE_ADMIN_PASS }}
+      TWENTY_ADMIN_USER:    ${{ secrets.PROD_TWENTY_ADMIN_USER }}
+      TWENTY_ADMIN_PASS:    ${{ secrets.PROD_TWENTY_ADMIN_PASS }}
       # Prod IDP overrides — set repo variables / environment secrets only
       # if production uses different IDP hostnames than sandbox defaults.
       FOSS_MPASS_DOMAIN:   ${{ vars.PROD_FOSS_MPASS_DOMAIN }}

@@ -1,12 +1,12 @@
 # FOSS E2E — Playwright Test Suite
 
-End-to-end tests for the FOSS platform. **125 tests across 19 spec files**,
+End-to-end tests for the FOSS platform. **128 tests across 20 spec files**,
 covering: SSO chain, multi-app session sharing, cookie expiry bounds,
 session lifecycle (logout / invalidation / replay / deletion), per-app link
 coverage, the Plane god-mode admin escape hatch, Outline's admin
 `/settings/*` SSO-gating + role split, Penpot's team-role RPC
 mutation round-trip, SurfSense's SearchSpace RBAC mutation
-round-trip, the full
+round-trip, Twenty's `/settings/admin-panel` URL gate, the full
 login → 5 apps → logout user journey, and the SSO-rule invariants from
 [`sso-rules` RULES.md](https://github.com/awais786/sso-rules) (header
 spoofing, bypass discipline, security-header coverage on every router
@@ -64,6 +64,10 @@ Optional:
 - `SURFSENSE_ADMIN_USER` / `SURFSENSE_ADMIN_PASS` — SSO user who is
   Owner of at least one SurfSense SearchSpace; enables the
   RBAC-PUT role-mutation round-trip — self-skips otherwise
+- `TWENTY_ADMIN_USER` / `TWENTY_ADMIN_PASS` — SSO user with
+  `canAccessFullAdminPanel=true` (pre-bootstrapped via the
+  `workspace:bootstrap-sso-admin` CLI command); enables the
+  admin-can-reach-`/settings/admin-panel` test — self-skips otherwise
 - `BROWSERS=all` — chromium + firefox + webkit (default: chromium only)
 - `FOSS_COGNITO_DOMAIN` / `FOSS_MPASS_DOMAIN` — IDP overrides (don't derive
   from base URL)
@@ -144,6 +148,17 @@ edge-layer rules). Highlights:
   Own, picks a non-self non-Owner member, flips their `role_id` via
   `PUT /api/rbac/searchspaces/<id>/members/<id>`, verifies in a
   re-fetched member list, and restores in `finally`.
+- **Twenty admin** (`/settings/admin-panel`) — Twenty has a real
+  admin URL gated server-side by `AdminPanelGuard` checking
+  `User.canAccessFullAdminPanel`. Three invariants: cold context
+  bounces through SSO (no bypass), FOSS_USER (non-admin) lands on
+  Twenty but the page renders no admin-panel UI markers, and (when
+  `TWENTY_ADMIN_USER` is set) a pre-bootstrapped admin user sees the
+  admin UI markers (Health Status / Feature Flags / Config Variables
+  / AI Models). Twenty has NO first-user-auto-admin — `canAccessFull­
+  AdminPanel` is only flippable via the `workspace:bootstrap-sso-admin`
+  CLI command, so the admin account must be pre-bootstrapped on the
+  deployment.
 - **End-to-end flow** — fresh login → all 5 apps load authed; per-app
   `/oauth2/sign_out`; main portal "Log out of all apps" → all 5 apps
   bounce back to the IDP.
@@ -193,7 +208,8 @@ tests/
 │   ├── pm-godmode.spec.ts                 # admin escape-hatch invariants
 │   ├── surfsense.spec.ts                  # link coverage
 │   ├── surfsense-admin.spec.ts            # SearchSpace RBAC mutation round-trip
-│   └── twenty.spec.ts                     # link coverage (SPA, route-mutating nav)
+│   ├── twenty.spec.ts                     # link coverage (SPA, route-mutating nav)
+│   └── twenty-admin.spec.ts               # /settings/admin-panel URL gate
 ├── flows/
 │   └── login-logout-flow.spec.ts          # full e2e journey
 ├── security/
@@ -269,6 +285,8 @@ artifact only on failure.
 | `SANDBOX_PENPOT_ADMIN_PASS` | optional | same |
 | `SANDBOX_SURFSENSE_ADMIN_USER` | optional | enables SurfSense RBAC role-mutation round-trip test |
 | `SANDBOX_SURFSENSE_ADMIN_PASS` | optional | same |
+| `SANDBOX_TWENTY_ADMIN_USER` | optional | enables Twenty admin-panel-reachable test (must be pre-bootstrapped) |
+| `SANDBOX_TWENTY_ADMIN_PASS` | optional | same |
 | `SLACK_WEBHOOK_URL` | optional | enables Slack failure notifications (with the list of failed tests) |
 
 **Variables tab** (optional):
@@ -297,6 +315,8 @@ artifact only on failure.
 | `PROD_PENPOT_ADMIN_PASS` | optional | Penpot admin SSO pass |
 | `PROD_SURFSENSE_ADMIN_USER` | optional | SurfSense Owner SSO user |
 | `PROD_SURFSENSE_ADMIN_PASS` | optional | SurfSense Owner SSO pass |
+| `PROD_TWENTY_ADMIN_USER` | optional | Twenty global admin SSO user (pre-bootstrapped) |
+| `PROD_TWENTY_ADMIN_PASS` | optional | Twenty global admin SSO pass |
 
 **Variables (repo or environment)**:
 
