@@ -1,12 +1,11 @@
 # FOSS E2E — Playwright Test Suite
 
-End-to-end tests for the FOSS platform. **128 tests across 20 spec files**,
-covering: SSO chain, multi-app session sharing, cookie expiry bounds,
-session lifecycle (logout / invalidation / replay / deletion), per-app link
-coverage, the Plane god-mode admin escape hatch, Outline's admin
-`/settings/*` SSO-gating + role split, Penpot's team-role RPC
-mutation round-trip, SurfSense's SearchSpace RBAC mutation
-round-trip, Twenty's `/settings/admin-panel` URL gate, the full
+End-to-end tests for the FOSS platform. See **[`TESTS.md`](./TESTS.md)** for
+a top-to-bottom catalog of every test in the suite. Highlights: SSO chain,
+multi-app session sharing, cookie expiry bounds, session lifecycle
+(logout / invalidation / replay / deletion), per-app link coverage, the
+Plane god-mode admin escape hatch, Outline's admin `/settings/*` SSO-gating
++ role split, Twenty's `/settings/admin-panel` URL gate, the full
 login → 5 apps → logout user journey, and the SSO-rule invariants from
 [`sso-rules` RULES.md](https://github.com/awais786/sso-rules) (header
 spoofing, bypass discipline, security-header coverage on every router
@@ -131,20 +130,6 @@ edge-layer rules). Highlights:
   load, while the 8 admin-only pages (details, security, authentication,
   features, integrations, applications, import, export) are gated
   (Not Found, chunk-load failure, or never resolve past the SPA shell).
-- **Penpot admin** (team-role RPC) — Penpot has no `/admin` URL; admin
-  is a per-team state on the `team_profile_rel` row, gated server-side
-  by the `update-team-member-role` RPC handler. The test logs in as
-  `PENPOT_ADMIN_USER`, discovers a team they own/admin, picks a non-self
-  non-owner teammate, promotes them via RPC, verifies the change in a
-  re-fetched member list, and restores the original role in a `finally`
-  block. Locks in the round-trip contract end-to-end.
-- **SurfSense admin** (SearchSpace RBAC) — Same shape as Penpot, but
-  via plain JSON: SurfSense has no global admin (`is_superuser=False`
-  hard-coded for proxy-auth users); admin is per-SearchSpace
-  (Owner/Editor/Viewer). `SURFSENSE_ADMIN_USER` discovers a space they
-  Own, picks a non-self non-Owner member, flips their `role_id` via
-  `PUT /api/rbac/searchspaces/<id>/members/<id>`, verifies in a
-  re-fetched member list, and restores in `finally`.
 - **Twenty admin** (`/settings/admin-panel`) — Twenty has a real
   admin URL gated server-side by `AdminPanelGuard` checking
   `User.canAccessFullAdminPanel`. Three invariants: cold context
@@ -200,11 +185,9 @@ tests/
 │   ├── outline.spec.ts                    # branding + link coverage
 │   ├── penpot.spec.ts                     # branding + hash-route nav coverage
 │   ├── outline-admin.spec.ts              # /settings/* SSO-gating + non-admin role split
-│   ├── penpot-admin.spec.ts               # team-role RPC mutation round-trip
 │   ├── pm.spec.ts                         # link coverage
 │   ├── pm-godmode.spec.ts                 # admin escape-hatch invariants
 │   ├── surfsense.spec.ts                  # link coverage
-│   ├── surfsense-admin.spec.ts            # SearchSpace RBAC mutation round-trip
 │   ├── twenty.spec.ts                     # link coverage (SPA, route-mutating nav)
 │   └── twenty-admin.spec.ts               # /settings/admin-panel URL gate
 ├── flows/
