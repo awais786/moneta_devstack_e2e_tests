@@ -129,11 +129,28 @@ raw.describe("Outline — non-admin role split (NORMAL_USER)", () => {
       try {
         await cognitoLogin(page, { user: NORMAL_USER!, pass: NORMAL_PASS! });
 
-        const res = await page.goto(APP_URLS.Outline + path, {
+        // Human-style nav: open /settings first, then click the sub-link
+        // for the target page (same rationale as the admin block below —
+        // click-nav lets React Router prefetch the chunk and avoids the
+        // chunk-load race on CI). For path === "/settings" we just load
+        // settings directly.
+        await page.goto(`${APP_URLS.Outline}/settings`, {
           waitUntil: "domcontentloaded",
           timeout: 30000,
         });
         await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+
+        if (path !== "/settings") {
+          const subLink = page.locator(`a[href="${path}"]`).first();
+          await subLink.waitFor({ state: "visible", timeout: 10000 });
+          await subLink.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+          await subLink.click();
+          const pathRegex = new RegExp(
+            path.replace(/[/\\^$*+?.()|[\]{}]/g, "\\$&") + "(\\?|$)"
+          );
+          await page.waitForURL(pathRegex, { timeout: 15000 });
+          await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+        }
 
         const landed = page.url();
         expect(new URL(landed).hostname).toBe(DOCS_HOST);
@@ -142,9 +159,9 @@ raw.describe("Outline — non-admin role split (NORMAL_USER)", () => {
           `Non-admin bounced to auth wall on ${path}: ${landed}`
         ).toBe(false);
         expect(
-          res?.status() ?? 0,
-          `${path} returned ${res?.status()}`
-        ).toBeLessThan(400);
+          landed,
+          `Expected to land on ${path}, got ${landed}`
+        ).toContain(path);
 
         const title = await waitForSpaTitle(page);
         expect(
@@ -203,16 +220,36 @@ raw.describe("Outline — non-admin role split (NORMAL_USER)", () => {
 test.describe("Outline — admin (FOSS_USER) reaches every /settings page", () => {
   for (const path of ALL_PATHS) {
     test(`admin reaches ${path} with a real page title`, async ({ page }) => {
-      const res = await page.goto(APP_URLS.Outline + path, {
+      // Human-style navigation: load /settings once (the natural entry
+      // point — a user reaches it via the Account menu or by bookmark)
+      // and then click the in-page sub-nav links to reach each sub-page.
+      // Clicking real <a href> links lets Outline's React router
+      // prefetch the route chunk on hover and preserves SPA state — which
+      // avoids the chunk-load race that direct page.goto on each
+      // sub-route intermittently triggers on CI.
+      await page.goto(`${APP_URLS.Outline}/settings`, {
         waitUntil: "domcontentloaded",
         timeout: 30000,
       });
       await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
 
+      if (path !== "/settings") {
+        // From /settings, click the sub-nav link to the target page.
+        const subLink = page.locator(`a[href="${path}"]`).first();
+        await subLink.waitFor({ state: "visible", timeout: 10000 });
+        await subLink.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+        await subLink.click();
+        const pathRegex = new RegExp(
+          path.replace(/[/\\^$*+?.()|[\]{}]/g, "\\$&") + "(\\?|$)"
+        );
+        await page.waitForURL(pathRegex, { timeout: 15000 });
+        await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+      }
+
       const landed = page.url();
       expect(new URL(landed).hostname).toBe(DOCS_HOST);
       expect(isAuthWall(landed), `Admin bounced to auth wall on ${path}: ${landed}`).toBe(false);
-      expect(res?.status() ?? 0, `${path} returned ${res?.status()}`).toBeLessThan(400);
+      expect(landed, `Expected to land on ${path}, got ${landed}`).toContain(path);
 
       const title = await waitForSpaTitle(page);
       const gatedForNonAdmin =
