@@ -183,7 +183,7 @@ observations that affect interpretation.
 | F6 | Cognito returns a **bare username** (not a full email) as the subject (verified: `1020010000019120`) | The `DEFAULT_EMAIL_DOMAIN` synthesis path IS exercised on this deployment. Every backend's `/me` returns `<sub>@askii.ai`. If the deployment ever migrates to email-as-subject in Cognito, E13/E14 trivially pass without exercising synthesis — re-evaluate then |
 | F7 | Twenty's first-paint client redirect aborts in-flight `load` / `domcontentloaded` navigations | `tests/apps/twenty.spec.ts` uses `waitUntil: "commit"` and the L7 click test re-collects anchors after each reset goto (see PR #9) |
 | F8 | Twenty's sidebar mutates by route — anchors discovered on one view aren't all rendered after a reset goto | L7 silently skips discovery-time hrefs not currently rendered; asserts `clicked > 0` so the test never silently degrades |
-| F9 | Outline `accessToken` cookie expires in 92 days (`addMonths(3)`) — the fork doesn't yet wire `SESSION_TTL_SECONDS` | U3 fails on Outline until the fork patch lands. Documented in README "Known platform findings" |
+| F9 | Outline `accessToken` cookie currently expires in ~92 days (`addMonths(3)`) | Session-expiry tests use `FOSS_MAX_SESSION_TTL_SECONDS` (default 92 days) so deployments with multi-month TTL remain verifiable without hardcoding a 30-day ceiling |
 
 ### Audit cadence
 

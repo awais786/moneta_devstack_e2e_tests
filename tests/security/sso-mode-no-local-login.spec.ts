@@ -91,9 +91,11 @@ test.describe("AUTH_TYPE=SSO gate — local login/register UI must be hidden", (
           );
         }
 
-        // Give SPAs ~1s to hydrate; if a password form was going to
-        // render, it does so within hydration.
-        await page.waitForTimeout(1500);
+        // Give SPAs a chance to hydrate without a fixed sleep.
+        await Promise.race([
+          page.locator('input[type="password"]').first().waitFor({ state: "attached", timeout: 4000 }),
+          page.waitForLoadState("networkidle", { timeout: 4000 }),
+        ]).catch(() => {});
 
         // (1) No password input element.
         const passwordInputs = await page

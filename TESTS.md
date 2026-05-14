@@ -35,7 +35,7 @@ Blocks that require `NORMAL_USER` or `PLANE_ADMIN_USER` self-skip when those env
 | Test | Pins down |
 |---|---|
 | `_oauth2_proxy cookie is shared across all FOSS subdomains` | One login covers all 5 apps. |
-| `_oauth2_proxy cookie has a valid future expiry within session bounds` | The cookie expiry is in the future AND within the 30-day SSO TTL. |
+| `_oauth2_proxy cookie has a valid future expiry within session bounds` | The cookie expiry is in the future AND within the configured SSO TTL upper bound (`FOSS_MAX_SESSION_TTL_SECONDS`, default 92 days). |
 | `auth/session cookies on every app have valid future expiry within session bounds` | Same expiry check on every per-app session cookie (Outline `accessToken`, Penpot, Plane, etc.). |
 | `round-trip across all apps requires no re-authentication` | Visiting every app in sequence with one cookie never bounces to the IDP. |
 

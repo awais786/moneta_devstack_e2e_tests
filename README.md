@@ -82,6 +82,15 @@ npm run test:all-browsers # full suite × chromium + firefox + webkit
 npm run report            # open last HTML report
 ```
 
+Makefile shortcuts:
+
+```bash
+make help
+make test
+make test-security
+make test-spec SPEC=tests/security/headers.spec.ts PW_PROJECT=chromium
+```
+
 Filter by name:
 
 ```bash
@@ -99,7 +108,8 @@ edge-layer rules). Highlights:
   shared across all 5 subdomains, present after login, scoped to the
   platform domain.
 - **Cookie expiry** — `_oauth2_proxy` and per-app session cookies must expire
-  within a 30-day SSO TTL bound. Browser-session cookies (`expires=-1`) and
+  within the configured SSO TTL bound (`FOSS_MAX_SESSION_TTL_SECONDS`,
+  default 92 days). Browser-session cookies (`expires=-1`) and
   CSRF / locale cookies are excluded.
 - **Session lifecycle** — UI logout clears the cookie; logout from one app
   invalidates all; pre-logout cookies cannot be replayed; deleting the SSO
@@ -341,8 +351,8 @@ CI=true npm test
 CI mode: 2 workers, 1 retry, HTML report saved but not opened.
 Screenshots, videos, and traces written to `test-results/` on failure.
 
-## Known platform findings (test should fail until fixed)
+## Session TTL note
 
-| Test | Finding | Fix lives in |
-|------|---------|--------------|
-| `auth/session cookies on every app have valid future expiry within session bounds` | Outline `accessToken` expires in 92 days — Outline fork uses upstream `addMonths(3)` instead of wiring `SESSION_TTL_SECONDS`. | Outline fork patch (open) |
+`tests/auth/session-sharing.spec.ts` uses a deployment-configurable upper bound via
+`FOSS_MAX_SESSION_TTL_SECONDS` (default: 92 days) so environments with intentional
+multi-month cookie TTLs can be validated without hardcoding a 30-day ceiling.

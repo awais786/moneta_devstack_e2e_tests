@@ -1,5 +1,15 @@
-import { Page } from "@playwright/test";
+import { Page, Locator } from "@playwright/test";
 import { MAIN_URL, IDP_REGEX, FOSS_HOST_REGEX } from "./constants";
+
+async function firstVisibleLocator(page: Page, selectors: string[]): Promise<Locator | null> {
+  for (const selector of selectors) {
+    const loc = page.locator(selector).first();
+    if (await loc.isVisible().catch(() => false)) {
+      return loc;
+    }
+  }
+  return null;
+}
 
 export async function cognitoLogin(
   page: Page,
@@ -30,9 +40,15 @@ export async function cognitoLogin(
     await passwordChooser.first().click();
   }
 
-  const userInput = page.locator(
-    'input[name="username"], input[name="mpassNumber"], input[placeholder*="username" i], input[placeholder*="mPass" i], input[type="text"]'
-  ).first();
+  const userInput =
+    (await firstVisibleLocator(page, [
+      'input[name="username"]',
+      'input[name="mpassNumber"]',
+      'input[autocomplete="username"]',
+      'input[placeholder*="username" i]',
+      'input[placeholder*="mPass" i]',
+      'input[type="email"]',
+    ])) ?? page.locator('input[type="text"]').first();
   await userInput.waitFor({ state: "visible", timeout: 30000 });
   await userInput.click();
   await userInput.pressSequentially(user, { delay: 30 });

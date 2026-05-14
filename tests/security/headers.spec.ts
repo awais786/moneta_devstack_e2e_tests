@@ -56,7 +56,7 @@ const HEADER_RULES: HeaderRule[] = [
   {
     name: "permissions-policy",
     matches: (v) =>
-      // Require the four powerful APIs to be denied by default. Other
+      // Require sensitive APIs to be denied by default. Other
       // values may follow.
       ["camera", "microphone", "geolocation"].every((feature) =>
         new RegExp(`${feature}\\s*=\\s*\\(\\s*\\)`).test(v)

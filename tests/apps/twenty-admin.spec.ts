@@ -38,7 +38,14 @@ const NORMAL_PASS = process.env.NORMAL_PASS;
 // link-coverage.ts for the same issue). Use `commit` + an explicit
 // render wait.
 
-const SPA_RENDER_WAIT_MS = 6000;
+async function waitForAdminPanelSurface(page: import("@playwright/test").Page): Promise<void> {
+  await page
+    .waitForFunction(() => {
+      const text = (document.body?.innerText ?? "").toLowerCase();
+      return text.length > 0;
+    }, null, { timeout: 10_000 })
+    .catch(() => {});
+}
 
 // ---------------------------------------------------------------------------
 // (A) Cold context: /settings/admin-panel must bounce through SSO.
@@ -116,7 +123,7 @@ raw.describe("Twenty — admin-panel gated for non-admin SSO user", () => {
       await cognitoLogin(page, { user: NORMAL_USER!, pass: NORMAL_PASS! });
 
       await page.goto(ADMIN_URL, { waitUntil: "commit", timeout: 30_000 });
-      await page.waitForTimeout(SPA_RENDER_WAIT_MS);
+      await waitForAdminPanelSurface(page);
 
       const landed = page.url();
       expect(new URL(landed).hostname).toBe(TWENTY_HOST);
@@ -150,7 +157,7 @@ test.describe("Twenty — admin-panel reachable for FOSS_USER (canAccessFullAdmi
     test.setTimeout(60_000);
 
     await page.goto(ADMIN_URL, { waitUntil: "commit", timeout: 30_000 });
-    await page.waitForTimeout(SPA_RENDER_WAIT_MS);
+    await waitForAdminPanelSurface(page);
 
     const landed = page.url();
     expect(new URL(landed).hostname).toBe(TWENTY_HOST);

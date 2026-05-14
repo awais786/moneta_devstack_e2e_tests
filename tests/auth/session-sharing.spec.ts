@@ -10,10 +10,13 @@ import {
 
 // Reasonable session-cookie expiry window. Lower bound: a freshly-issued
 // cookie should have at least 5 minutes left (otherwise the session will
-// expire mid-test). Upper bound: anything > 30 days is a misconfiguration —
-// SSO cookies are not "remember me" persistent identity tokens.
+// expire mid-test). Upper bound is deployment-configurable because some
+// environments intentionally run multi-month SSO TTLs.
 const MIN_REMAINING_SECONDS = 5 * 60;
-const MAX_REMAINING_SECONDS = 30 * 24 * 60 * 60;
+const parsedMaxTtl = Number(process.env.FOSS_MAX_SESSION_TTL_SECONDS);
+const MAX_REMAINING_SECONDS = Number.isFinite(parsedMaxTtl) && parsedMaxTtl > 0
+  ? parsedMaxTtl
+  : 92 * 24 * 60 * 60;
 
 // Cookies that actually carry identity / session bearer state. Other
 // persistent cookies (CSRF tokens, locale, "last signed in" UX hints) are

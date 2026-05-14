@@ -67,15 +67,6 @@ test.describe("HTTP plaintext lockdown", () => {
         return;
       }
 
-      // 2xx is the only forbidden range — means content was served
-      // directly over plain HTTP. 3xx (redirect to https) and 4xx/5xx
-      // (refused) are both fine.
-      const isPlaintext2xx = result.status >= 200 && result.status < 300;
-      expect(
-        isPlaintext2xx,
-        `${target.url} returned ${result.status} over plain HTTP — TLS-stripping risk. Server must redirect to https:// or refuse the connection.`
-      ).toBe(false);
-
       // For redirects, Location must be https://. Cross-host redirects
       // are allowed (ForwardAuth legitimately bounces app hosts to the
       // auth-proxy host) — the only thing that matters is the scheme
@@ -89,7 +80,14 @@ test.describe("HTTP plaintext lockdown", () => {
           result.location!.toLowerCase().startsWith("https://"),
           `${target.url} redirected to non-https Location: ${result.location}`
         ).toBe(true);
+        return;
       }
+
+      const explicitlyBlocked = result.status === 403 || result.status === 404;
+      expect(
+        explicitlyBlocked,
+        `${target.url} returned HTTP ${result.status} over plain HTTP. Expected one of: TCP refused/unreachable, https redirect, or explicit HTTP block (403/404).`
+      ).toBe(true);
     });
   }
 });
