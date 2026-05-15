@@ -255,10 +255,10 @@ export function registerLinkCoverage({
       test.setTimeout(SUITE_TIMEOUT);
       // L1 just navigated to the same start page seconds ago — back-to-back
       // page loads can trip the deployment's per-user rate limit (Outline
-      // returns 429s on the JS chunks, leaving the page anchorless). A
-      // short cooldown here keeps the rate limiter happy; same instinct as
-      // a human pausing between forceful page reloads.
-      await page.waitForTimeout(2000);
+      // returns 429s on the JS chunks, leaving the page anchorless). 2s
+      // wasn't enough in CI (saw 0-anchor failures repeat); bump to 5s,
+      // which is comfortably above any rate-limit window we've observed.
+      await page.waitForTimeout(5000);
 
       await resolveStartUrl(page, startUrl, waitUntil);
       await dismissTour(page);

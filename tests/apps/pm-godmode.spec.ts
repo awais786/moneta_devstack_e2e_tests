@@ -111,7 +111,12 @@ test.describe("Plane (PM) — god-mode bypasses ForwardAuth", () => {
       "Admin login form should disappear after successful sign-in"
     ).not.toBeVisible({ timeout: 15000 });
 
-    await expect(page).toHaveURL(/\/god-mode/);
+    // Plane POSTs to /api/instances/admins/sign-in/ and the SPA only
+    // routes back to /god-mode once the backend's 200 response lands.
+    // When Plane is slow (e.g. cold app or transient gateway timeout)
+    // the URL can sit on the API endpoint for several seconds before
+    // the SPA navigates. Allow up to 20s for the URL to settle.
+    await expect(page).toHaveURL(/\/god-mode/, { timeout: 20_000 });
     await expect(page).toHaveURL(PM_HOST_REGEX);
     expect(isAuthWall(page.url()), `Admin must not bounce to SSO chain: ${page.url()}`).toBe(false);
   });
