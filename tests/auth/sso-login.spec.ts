@@ -1,6 +1,7 @@
 import { test, expect } from "../../fixtures";
 import { BrowserContext, Page } from "@playwright/test";
 import {
+  APP_URLS,
   MAIN_URL,
   AUTH_COOKIE,
   COOKIE_DOMAIN,
@@ -28,12 +29,27 @@ async function isOnAuthWall(page: Page): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 test.describe("SSO Login Flow", () => {
-  test("authenticated session lands on FOSS platform, not Cognito", async ({ page }) => {
+  test("authenticated session lands on FOSS platform, not Cognito", async ({ page, context }) => {
     await page.goto(MAIN_URL);
     await page.waitForLoadState("networkidle");
 
     expect(await isOnAuthWall(page)).toBe(false);
     expect(page.url()).toContain(COOKIE_DOMAIN);
+
+    // Anti-vacuous-pass: a misconfigured proxy that sets cookies but
+    // rejects every subsequent request with 401 would still pass the URL
+    // check above. Probe Plane's /me endpoint to prove the session is
+    // genuinely accepted by at least one backend, not just visually
+    // routed away from Cognito.
+    const res = await context.request.get(`${APP_URLS.PM}/api/users/me/`);
+    expect(
+      res.status(),
+      `/api/users/me/ rejected the SSO-derived session (status ${res.status()}). Landing URL alone is not sufficient: the proxy may set cookies but reject backend requests when ProxyAuthMiddleware is misconfigured or its env vars diverge from oauth2-proxy.`
+    ).toBe(200);
+    const body = (await res.json()) as { email?: string };
+    expect(body.email, "Plane /me must return an email for the authenticated user").toMatch(
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    );
   });
 
   test(`_oauth2_proxy cookie present on .${COOKIE_DOMAIN} after login`, async ({ context }) => {
