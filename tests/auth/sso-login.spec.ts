@@ -1,5 +1,5 @@
 import { test, expect } from "../../fixtures";
-import { BrowserContext, Page, request } from "@playwright/test";
+import { BrowserContext, Page } from "@playwright/test";
 import {
   APP_URLS,
   MAIN_URL,
@@ -41,24 +41,15 @@ test.describe("SSO Login Flow", () => {
     // check above. Probe Plane's /me endpoint to prove the session is
     // genuinely accepted by at least one backend, not just visually
     // routed away from Cognito.
-    const cookies = await context.cookies(APP_URLS.PM);
-    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
-    const probeCtx = await request.newContext({
-      extraHTTPHeaders: { cookie: cookieHeader },
-    });
-    try {
-      const res = await probeCtx.get(`${APP_URLS.PM}/api/users/me/`);
-      expect(
-        res.status(),
-        `/api/users/me/ rejected the SSO-derived session (status ${res.status()}). Landing URL alone is not sufficient: the proxy may set cookies but reject backend requests when ProxyAuthMiddleware is misconfigured or its env vars diverge from oauth2-proxy.`
-      ).toBe(200);
-      const body = (await res.json()) as { email?: string };
-      expect(body.email, "Plane /me must return an email for the authenticated user").toMatch(
-        /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-      );
-    } finally {
-      await probeCtx.dispose();
-    }
+    const res = await context.request.get(`${APP_URLS.PM}/api/users/me/`);
+    expect(
+      res.status(),
+      `/api/users/me/ rejected the SSO-derived session (status ${res.status()}). Landing URL alone is not sufficient: the proxy may set cookies but reject backend requests when ProxyAuthMiddleware is misconfigured or its env vars diverge from oauth2-proxy.`
+    ).toBe(200);
+    const body = (await res.json()) as { email?: string };
+    expect(body.email, "Plane /me must return an email for the authenticated user").toMatch(
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    );
   });
 
   test(`_oauth2_proxy cookie present on .${COOKIE_DOMAIN} after login`, async ({ context }) => {
