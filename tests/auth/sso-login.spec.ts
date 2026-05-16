@@ -1,3 +1,8 @@
+// Spec coverage for this file (see docs/spec-coverage.md):
+// @spec proxy-auth-middleware#unauthenticated-requests-with-a-valid-proxy-identity-shall-auto-provision-and-log-in
+// @spec oauth2-proxy-gateway#cookie-domain-shall-be-the-platform-parent-domain
+// @spec session-lifecycle#the-system-shall-maintain-two-distinct-session-layers
+
 import { test, expect } from "../../fixtures";
 import { BrowserContext, Page } from "@playwright/test";
 import {

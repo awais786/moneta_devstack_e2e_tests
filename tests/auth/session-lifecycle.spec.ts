@@ -1,3 +1,9 @@
+// Spec coverage for this file (see docs/spec-coverage.md):
+// @spec logout-flow#portal-logout-all-shall-clear-only-the-oauth2-proxy-cookie
+// @spec logout-flow#stale-app-native-sessions-shall-be-reaped-on-next-request-not-eagerly
+// @spec logout-flow#logout-shall-be-observable-and-idempotent
+// @spec session-lifecycle#simultaneous-expiry-of-both-layers-shall-redirect-to-mpass-login
+
 import { test, expect, Browser, BrowserContext, Page } from "@playwright/test";
 import { cognitoLogin } from "../../auth-helpers";
 import { APPS, AUTH_COOKIE, MAIN_URL, isAuthWall } from "../../constants";

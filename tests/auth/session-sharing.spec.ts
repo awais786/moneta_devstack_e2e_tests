@@ -1,3 +1,7 @@
+// Spec coverage for this file (see docs/spec-coverage.md):
+// @spec oauth2-proxy-gateway#cookie-domain-shall-be-the-platform-parent-domain
+// @spec session-lifecycle#the-system-shall-maintain-two-distinct-session-layers
+
 import { test, expect } from "../../fixtures";
 import {
   APPS,

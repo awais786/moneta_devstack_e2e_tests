@@ -1,3 +1,6 @@
+// Spec coverage for this file (see docs/spec-coverage.md):
+// @spec forwardauth-traefik#bypass-paths-shall-route-via-higher-priority-routers-without-mpass-auth
+
 import { test, expect, request } from "@playwright/test";
 import { APPS, APP_URLS, isAuthWall } from "../../constants";
 import { SPOOFED_HEADERS } from "../lib/spoofed-headers";

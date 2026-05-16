@@ -1,3 +1,8 @@
+// Spec coverage for this file (see docs/spec-coverage.md):
+// @spec forwardauth-traefik#a-single-mpass-auth-middleware-shall-be-defined-on-the-oauth2-proxy-service
+// @spec forwardauth-traefik#every-protected-app-router-shall-apply-mpass-auth
+// @spec forwardauth-traefik#header-overwrite-shall-be-enforced
+
 import { test, expect } from "../../fixtures";
 import { request, BrowserContext } from "@playwright/test";
 import { APPS, APP_URLS, isAuthWall } from "../../constants";

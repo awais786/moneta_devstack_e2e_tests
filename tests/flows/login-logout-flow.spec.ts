@@ -1,3 +1,6 @@
+// Spec coverage for this file (see docs/spec-coverage.md):
+// @spec logout-flow#per-app-logout-shall-be-navigation-only
+
 import { test, expect, Browser, BrowserContext, Page } from "@playwright/test";
 import { cognitoLogin } from "../../auth-helpers";
 import { APPS, AUTH_COOKIE, IDP_HOSTS, IDP_REGEX, MAIN_URL, isAuthWall } from "../../constants";

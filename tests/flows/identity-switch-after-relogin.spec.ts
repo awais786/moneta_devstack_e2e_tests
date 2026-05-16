@@ -1,3 +1,6 @@
+// Spec coverage for this file (see docs/spec-coverage.md):
+// @spec proxy-auth-middleware#identity-mismatch-shall-flush-the-existing-session-immediately
+
 import { test, expect } from "../../fixtures";
 import { test as raw, type Page, type BrowserContext } from "@playwright/test";
 import { APPS, MAIN_URL, AUTH_COOKIE } from "../../constants";
