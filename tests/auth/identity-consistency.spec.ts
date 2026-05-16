@@ -1,3 +1,8 @@
+// Spec coverage for this file (see docs/spec-coverage.md):
+// @spec proxy-auth-middleware#email-normalisation-shall-be-applied-uniformly
+// @spec oauth2-proxy-gateway#gateway-shall-emit-x-auth-request-headers-on-authenticated-responses
+// @spec cognito-claim-mapping#standard-claim-header-mapping
+
 import { test, expect } from "../../fixtures";
 import { request, BrowserContext } from "@playwright/test";
 import { APP_URLS } from "../../constants";

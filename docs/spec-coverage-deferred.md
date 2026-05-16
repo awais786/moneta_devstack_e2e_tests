@@ -1,0 +1,81 @@
+# Deferred Spec Coverage — Rationale
+
+Spec requirements from [awais786/sso-rules-moneta](https://github.com/awais786/sso-rules-moneta) that this e2e suite does NOT cover, with the reason for each.
+
+Categories:
+- **Infra-only** — verifiable from infra config / IaC, not from a browser. The bundle-side `audit-sso.sh` covers these via grep.
+- **Cognito-side** — requires Cognito console access or admin API; not reachable from CI.
+- **Policy/doc** — negative or documentation requirement; verified by reasoning, not test.
+- **Needs infra access** — would require an echo endpoint, access token exposure, or similar plumbing the bundle does not provide today.
+- **Genuine test gap** — could be tested but not yet written. Tracked for follow-up.
+
+Format: `<module>#<requirement>` — `<category>` — short rationale.
+
+---
+
+## proxy-auth-middleware
+
+- `Authenticated sessions with matching or absent proxy identity SHALL short-circuit` — **Genuine test gap** — add a test that captures a request count for `/me` and verifies the second authenticated probe does not trigger a re-auth handshake.
+- `Concurrent creation races SHALL fall back to read` — **Genuine test gap** — add a test that fires N parallel first-time logins from different browser contexts using the same Cognito user and asserts only one User row is created (count via admin endpoint or log assertion).
+- `email-shape detection on header values SHALL avoid polynomial-backtracking regex` — **Covered elsewhere** — per-fork `sso-audit.sh` Row 21 catches static regression; live ReDoS probe (adversarial input + response-time bound) is a genuine test gap if you want behavioural coverage.
+
+## oauth2-proxy-gateway
+
+- `gateway SHALL use OIDC Discovery against the Cognito issuer` — **Infra-only** — bundle's `audit-sso.sh` greps for `OIDC_ISSUER_URL` config; behavioural verification would require breaking discovery to confirm.
+- `cookie secret SHALL be 32 random bytes, base64-encoded` — **Infra-only** — bundle's audit verifies length + base64 shape of `OAUTH2_PROXY_COOKIE_SECRET`.
+- `gateway SHALL use a redis-backed session store` — **Genuine test gap** — could be inferred by writing > 4KB worth of JWT into the session and asserting cookies stay small; not yet written.
+- `gateway SHALL pass access token to downstream apps when requested` — **Needs infra access** — requires `pass_access_token = true` config and a downstream endpoint that echoes the token; not exposed in current bundle.
+- `gateway SHALL use the configurable identity claim` — **Infra-only** — config-level.
+- `single shared callback URL` — **Infra-only** — Traefik config.
+
+## forwardauth-traefik
+
+- `backend ports SHALL be bound to 127.0.0.1 only` — **Infra-only** — only verifiable from inside the host; bundle's audit checks `docker-compose` port bindings.
+- `auth-response headers SHALL include exactly the three required headers` — **Infra-only** — Traefik config; bundle audit greps for `authResponseHeaders`.
+
+## session-lifecycle
+
+- `Layer 1 SHALL refresh transparently against OIDC` — **Genuine test gap** — would need to fast-forward time or shorten TTL in a test bundle; not yet wired.
+- `Layer 1 expiry while Layer 2 is valid SHALL re-auth transparently` — **Genuine test gap** — same TTL constraint.
+- `Layer 2 expiry while Layer 1 is valid SHALL re-establish session from headers` — **Genuine test gap** — manually clear per-app session cookie (Django sessionid, Outline session, etc.) and assert subsequent request re-establishes from `_oauth2_proxy`.
+- `mPass-side session revocation SHALL be honoured on next refresh` — **Cognito-side** — requires admin API call to revoke a refresh token; not in CI scope today.
+- `per-app session TTLs SHALL be uniformly configurable` — **Infra-only**.
+- `Layer-2 session renewal SHALL be guarded against three regression paths` — **Genuine test gap** — the three paths are listed in the spec; each could be turned into a focused negative test.
+- `bridge state TTL SHALL be 3 minutes` — **Genuine test gap** — would need to wait 3 minutes or mock the TTL.
+
+## cognito-claim-mapping
+
+- `identity claim SHALL be configurable when email is unreliable` — **Infra-only**.
+- `claim mapping SHALL be the same across the cookie flow and the JWT-bearer flow` — **Genuine test gap** — Outline exposes a JWT-bearer endpoint (`/api/auth.info`-style with `Authorization: Bearer`); a test could log in via cookie, capture the access token (if exposed), and hit the JWT endpoint with the same identity to assert parity.
+- `id_token vs access_token audience claim SHALL both be accepted` — **Needs infra access** — requires the JWT-bearer endpoint AND access token exposure.
+- `display name SHALL be derived without round-trip when possible` — **Genuine test gap** — could be tested by asserting the SPA shows the user's display name on first paint without firing a /me call.
+
+## logout-flow
+
+- `per-app "Logout" SHALL NOT be relied on for security` — **Policy/doc** — negative requirement; verified by reasoning + the cross-cutting `session-lifecycle` reap test.
+- `Cognito SSO teardown is operator-callable but not surfaced as a user action` — **Policy/doc** — operator-only convention.
+- `Cognito allowlist SHALL include the portal main page` — **Cognito-side** — Cognito app client config.
+
+## workspace-auto-join
+
+- `auto-join SHALL run on every login, not just on user creation` — **Genuine test gap** — log in as an existing user previously removed from their workspace; assert they are re-joined on next login.
+- `auto-join SHALL skip when no workspace exists yet` — **Genuine test gap** — fresh bundle with no workspace; assert user is created but unbound.
+- `auto-join target SHALL be the oldest workspace` — **Genuine test gap** — create two workspaces with distinct creation times, log in as a fresh user, assert they land in the oldest.
+- `auto-join role SHALL be the app's regular-member role, not Admin or Guest` — **Genuine test gap** — log in as fresh user, hit per-app role endpoint, assert role is Member.
+- `auto-join SHALL mark onboarding complete on the user profile` — **Genuine test gap** — assert profile shows onboarding skipped.
+- `per-app workspace model SHALL be documented in workspaces.md` — **Policy/doc** — doc requirement; verified by file existence in `awais786/sso-rules-moneta`.
+- `auto-join SHALL NOT leak across apps` — **Genuine test gap** — auto-join in Plane, then visit Outline, assert no auto-join happened there (or vice-versa).
+
+---
+
+## Categories summary
+
+| Category | Count | Notes |
+|---|---|---|
+| Infra-only | 8 | Covered by bundle-side `audit-sso.sh` |
+| Cognito-side | 2 | Out of CI scope |
+| Policy/doc | 3 | Verified by reasoning |
+| Needs infra access | 2 | Blocked on bundle exposing additional state |
+| Genuine test gap | 14 | Open work — candidates for the next coverage PR |
+
+Total deferred: **29** of 47 requirements. Combined with 11 ✅ Full + 7 🟡 Partial in the matrix = 47.

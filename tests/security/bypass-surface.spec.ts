@@ -1,3 +1,8 @@
+// Spec coverage for this file (see docs/spec-coverage.md):
+// @spec proxy-auth-middleware#bypass-paths-shall-short-circuit-before-any-auth-processing
+// @spec oauth2-proxy-gateway#gateway-shall-run-as-a-single-dedicated-service
+// @spec forwardauth-traefik#bypass-routes-per-app-shall-match-the-documented-list
+
 import { test, expect, request, APIResponse } from "@playwright/test";
 import { APPS, isAuthWall } from "../../constants";
 
